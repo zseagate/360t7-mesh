@@ -1,11 +1,8 @@
-# 公众号相关内容(文章/封面/拓扑图)不入库,仅存本地
+# 本地草稿与素材
 docs/
 assets/
-wechat-article*
-cover-wechat*
-topology*
 
-# 敏感文件:真实密码/密钥一律不入库
+# 敏感文件：密码/密钥一律不入库
 .wifikey
 *.key
 secret*

@@ -353,14 +353,13 @@ brctl showmacs br-lan | awk 'NR>2 && $2=="no"{c[$1]++}END{for(m in c)if(c[m]>1)p
 ```
 360t7-mesh/
 ├── README.md                        ← 本篇
+├── LICENSE                          ← MIT
 ├── patches/
 │   ├── fix-mesh-frequency.sh        ← 根治 mesh "frequency=5745.0" bug
 │   └── apply-mesh-config.example.sh ← 两台的 uci 配置成稿（已脱敏）
 └── scripts/
     └── verify-mesh.sh               ← 一键验收脚本
 ```
-
-> 公众号文章、封面图、拓扑图**不入库**，仅存本地（`360t7-local/`）。
 
 ## 10. 一键验收脚本
 
