@@ -192,16 +192,25 @@ if [ "$n" -gt 0 ]; then
 fi
 
 # ---- 规则 ----
-echo "rule-providers:"
-echo "  adblock:"
-echo "    type: file"
-echo "    behavior: domain"
-echo "    format: text"
-echo "    path: ./rules/anti-ad.txt"
+# 广告拦截开关：/etc/mihomo/adblock.enabled（1=启用，0=停用），缺省视为启用
+ADB=1
+[ -f /etc/mihomo/adblock.enabled ] && ADB=$(cat /etc/mihomo/adblock.enabled 2>/dev/null)
+case "$ADB" in 0) ;; *) ADB=1 ;; esac
+
+if [ "$ADB" = "1" ]; then
+	echo "rule-providers:"
+	echo "  adblock:"
+	echo "    type: file"
+	echo "    behavior: domain"
+	echo "    format: text"
+	echo "    path: ./rules/anti-ad.txt"
+	echo "rules:"
+	echo "  - RULE-SET,adblock,REJECT"
+else
+	echo "rules:"
+fi
 
 cat <<'RULES'
-rules:
-  - RULE-SET,adblock,REJECT
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve

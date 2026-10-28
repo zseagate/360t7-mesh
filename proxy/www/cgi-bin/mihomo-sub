@@ -96,6 +96,22 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 			echo '{"ok":false,"msg":"写入失败"}'; exit 0; }
 		logger -t mihomo-ui "订阅$([ "$new" = "1" ] && echo 启用 || echo 停用): $NAME"
 		;;
+	adblock_toggle)
+		cur=$(cat /etc/mihomo/adblock.enabled 2>/dev/null || echo 1)
+		[ "$cur" = "1" ] && new=0 || new=1
+		printf '%s\n' "$new" > /etc/mihomo/adblock.enabled
+		logger -t mihomo-ui "广告拦截$([ "$new" = "1" ] && echo 开启 || echo 关闭)"
+		;;
+	adblock_update)
+		if ps w 2>/dev/null | grep -q "[a]dblock-update"; then
+			echo '{"ok":false,"msg":"已有更新任务在跑，请稍候"}'
+			exit 0
+		fi
+		setsid sh -c '/usr/sbin/adblock-update >>/tmp/adblock-update.log 2>&1' </dev/null >/dev/null 2>&1 &
+		logger -t mihomo-ui "手动触发广告规则更新"
+		echo '{"ok":true,"msg":"已开始更新，约 10-30 秒后刷新查看结果"}'
+		exit 0
+		;;
 	mode)
 		case "$VAL" in
 			"") echo '{"ok":false,"msg":"缺少模式参数"}'; exit 0 ;;
@@ -149,6 +165,22 @@ info=1)
 	IP=$(uci -q get network.lan.ipaddr)
 	printf '{"backend":"http://%s:9090","secret":"%s","max":%s,"count":%s}\n' \
 		"${IP:-192.168.10.1}" "$(secret)" "$MAX_SUBS" "$(count_subs)"
+	exit 0 ;;
+adblock=1)
+	en=$(cat /etc/mihomo/adblock.enabled 2>/dev/null || echo 1)
+	[ "$en" = "0" ] || en=1
+	rules=/etc/mihomo/rules/anti-ad.txt
+	cnt=0; upd="-"
+	[ -f "$rules" ] && { cnt=$(wc -l < "$rules" 2>/dev/null || echo 0); upd=$(date -r "$rules" '+%F %H:%M' 2>/dev/null || echo -); }
+	lt="-"; ls_="-"; ll=0; lsrc=""; lm=""
+	if [ -f /etc/mihomo/rules/adblock.state ]; then
+		IFS='|' read -r lt ls_ ll lsrc lm < /etc/mihomo/rules/adblock.state
+	fi
+	running=0
+	ps w 2>/dev/null | grep -q "[a]dblock-update" && running=1
+	cron=$(grep -h "adblock-update" /etc/crontabs/root 2>/dev/null | head -1 | sed 's/[[:space:]]*\/usr.*//')
+	printf '{"enabled":%s,"count":%s,"updated":"%s","running":%s,"cron":"%s","last_time":"%s","last_status":"%s","last_lines":%s,"last_source":"%s","last_msg":"%s"}\n' \
+		"$en" "$cnt" "$upd" "$running" "$(json_escape "$cron")" "$(json_escape "$lt")" "$(json_escape "$ls_")" "${ll:-0}" "$(json_escape "$lsrc")" "$(json_escape "$lm")"
 	exit 0 ;;
 mode=1)
 	raw=$(curl -sS -m 8 -H "Authorization: Bearer $(secret)" "$API/proxies/Proxy" 2>/dev/null)

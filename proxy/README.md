@@ -151,11 +151,33 @@ Proxy（默认 = 第一个可用地区组）
 
 ## 7. 广告拦截
 
-- 规则源：**anti-AD**（约 9.9 万条），多个源自动降级：
-  `cdn.jsdelivr.net` → `anti-ad.net` → `ghfast.top` 反代；
-- 转换：easylist 的 `||domain^` → 纯域名，配合 `behavior: domain` + `format: text`；
-- 安全阀：少于 5 万条视为下载不完整，**保留旧规则**；内容一致则跳过不写盘；
-- 生效方式：`PUT /configs?force=true` 热重载，失败才回退 `restart`。
+**自动更新**：cron 每天 4:30 执行 `adblock-update`（`/etc/crontabs/root`），流程是
+「多源下载 → 转纯域名 → 校验 → 落盘 → 热重载」：
+
+| 步骤 | 说明 |
+|---|---|
+| 源降级 | `cdn.jsdelivr.net` → `anti-ad.net` → `ghfast.top` 反代 |
+| 转换 | easylist 的 `||domain^` → 纯域名（`behavior: domain` + `format: text`） |
+| 安全阀 | 少于 5 万条视为下载不完整，**保留旧规则**；内容一致则跳过不写盘 |
+| 生效 | `PUT /configs?force=true` 热重载，失败回退 `restart` |
+| 留痕 | 结果写入 `/etc/mihomo/rules/adblock.state`（时间\|状态\|条数\|来源\|说明） |
+
+**网页控制**：`http://<路由器IP>/mihomo/` 的「广告拦截」卡片（LuCI 里同样能看到）：
+
+- 显示：启用状态、规则条数、文件更新时间、cron 计划、最近一次运行结果与来源；
+- `关闭/开启广告拦截`：写 `/etc/mihomo/adblock.enabled`（1/0）→ 重新生成配置并重启，
+  关闭后 `config.yaml` 里连 `rule-providers` 与 `RULE-SET` 一起移除；
+- `立即更新规则`：后台跑 `adblock-update`，页面自动轮询（`running=1` 时每 4 秒刷新），
+  并发触发会被拒绝（`已有更新任务在跑`）。
+
+命令行等价操作：
+
+```sh
+adblock-update            # 立即更新
+adblock-update --status   # 看条数/最近运行
+echo 0 > /etc/mihomo/adblock.enabled   # 关闭拦截
+/etc/mihomo/gen-config.sh && /etc/init.d/mihomo restart
+```
 
 ⚠️ **REJECT 是连接级拦截，不是 DNS 拦截**：域名照样能解析出 IP，但连接被瞬间拒绝。
 所以别用 `nslookup` 判断是否生效（会误判），用 `curl` 看 `code=000` 或直接开浏览器。

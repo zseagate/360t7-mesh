@@ -14,6 +14,12 @@ TARGET=/etc/mihomo/rules/anti-ad.txt
 TMP=/tmp/.anti-ad-domains.txt
 RAW=/tmp/.anti-ad-raw.txt
 MIN_LINES=50000          # 少于这个数视为下载不完整，放弃本次更新
+STATE=/etc/mihomo/rules/adblock.state
+
+# 记录最近一次运行结果，供网页/命令查看：时间|状态|条数|来源|说明
+set_state() {
+	printf '%s|%s|%s|%s|%s\n' "$(date '+%F %T')" "$1" "${2:-0}" "${3:-}" "${4:-}" > "$STATE" 2>/dev/null
+}
 
 SOURCES="
 https://cdn.jsdelivr.net/gh/privacy-protection-tools/anti-AD@master/anti-ad-easylist.txt
@@ -61,6 +67,9 @@ status() {
 	else
 		echo "规则文件不存在: $TARGET"
 	fi
+	if [ -f "$STATE" ]; then
+		echo "最近运行: $(cat "$STATE" | awk -F'|' '{printf "%s  状态=%s  条数=%s", $1,$2,$3}')"
+	fi
 	SEC=$(cat /etc/mihomo/.secret 2>/dev/null)
 	echo "mihomo 侧:"
 	curl -sS -m 10 -H "Authorization: Bearer ${SEC:-}" http://127.0.0.1:9090/providers/rules 2>/dev/null |
@@ -98,12 +107,14 @@ echo "  域名条数: $lines"
 if [ "$lines" -lt "$MIN_LINES" ]; then
 	echo "❌ 条数异常(< $MIN_LINES)，保留旧规则"
 	rm -f "$RAW" "$TMP"
+	set_state fail 0 "$got" "条数异常(< $MIN_LINES)"
 	exit 1
 fi
 old=$(wc -l < "$TARGET" 2>/dev/null || echo 0)
 if [ "$old" -eq "$lines" ] && cmp -s "$TMP" "$TARGET"; then
 	echo "ℹ️ 与现有规则完全一致，无需更新"
 	rm -f "$RAW" "$TMP"
+	set_state skip "$lines" "$got" "内容无变化"
 	exit 0
 fi
 
@@ -112,9 +123,11 @@ mkdir -p "$(dirname "$TARGET")"
 if cp "$TMP" "$TARGET.new" && mv "$TARGET.new" "$TARGET"; then
 	echo "  ${old} -> ${lines} 条"
 	reload_mihomo
+	set_state ok "$lines" "$got" "更新成功"
 else
 	echo "❌ 写入失败"
 	rm -f "$RAW" "$TMP" "$TARGET.new"
+	set_state fail 0 "$got" "写入失败"
 	exit 1
 fi
 rm -f "$RAW" "$TMP"

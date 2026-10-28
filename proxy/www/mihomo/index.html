@@ -56,6 +56,17 @@
 </div>
 
 <div class="card">
+  <h2>广告拦截（anti-AD）</h2>
+  <div id="adb-status" class="hint">读取中…</div>
+  <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+    <button class="ghost" id="adb-toggle">…</button>
+    <button class="ghost" id="adb-update">立即更新规则</button>
+  </div>
+  <div class="hint" id="adb-last" style="margin-top:8px"></div>
+  <div id="adb-msg" class="msg"></div>
+</div>
+
+<div class="card">
   <h2>订阅列表</h2>
   <div id="list"><div class="empty">加载中…</div></div>
 </div>
@@ -138,6 +149,53 @@ async function switchMode(g) {
   setMsg(j.msg, j.ok);
   if (j.ok) loadModes();
 }
+
+let adbTimer = null;
+async function loadAdblock() {
+  try {
+    const j = await api('?adblock=1');
+    const st = $('adb-status');
+    st.innerHTML = (j.enabled ? '状态：<b>已启用</b>' : '状态：<b style="color:#d9534f">已停用</b>')
+      + ' ｜ 规则 <b>' + Number(j.count).toLocaleString() + '</b> 条'
+      + ' ｜ 文件更新于 ' + j.updated
+      + (j.cron ? ' ｜ 自动更新 <code>' + j.cron.trim() + '</code>' : '');
+    $('adb-toggle').textContent = j.enabled ? '关闭广告拦截' : '开启广告拦截';
+    $('adb-toggle').className = 'ghost' + (j.enabled ? ' warn' : '');
+
+    let last = '';
+    if (j.last_time && j.last_time !== '-') {
+      const map = {ok:'成功', skip:'内容无变化', fail:'失败'};
+      last = '最近一次运行：' + j.last_time + ' · ' + (map[j.last_status] || j.last_status)
+           + (j.last_msg ? '（' + j.last_msg + '）' : '')
+           + (j.last_source ? ' ｜ 来源 ' + j.last_source.replace(/^https:\/\//, '').split('/')[0] : '');
+    }
+    if (j.running) {
+      last = '⏳ 正在更新规则，请稍候…';
+      $('adb-update').disabled = true;
+      if (!adbTimer) adbTimer = setInterval(loadAdblock, 4000);
+    } else {
+      $('adb-update').disabled = false;
+      if (adbTimer) { clearInterval(adbTimer); adbTimer = null; }
+    }
+    $('adb-last').textContent = last;
+    $('adb-toggle').disabled = false;
+  } catch (e) {
+    $('adb-status').textContent = '读取失败：' + e;
+  }
+}
+
+$('adb-toggle').onclick = async () => {
+  const j = await api(null, 'action=adblock_toggle');
+  setMsg(j.msg, j.ok);
+  if (j.ok) setTimeout(loadAdblock, 6500);
+};
+
+$('adb-update').onclick = async () => {
+  const j = await api(null, 'action=adblock_update');
+  $('adb-msg').textContent = j.msg;
+  $('adb-msg').className = 'msg ' + (j.ok ? 'ok' : 'err');
+  if (j.ok) { $('adb-update').disabled = true; loadAdblock(); }
+};
 
 async function loadList() {
   try {
@@ -224,7 +282,7 @@ function updateCount(n) {
   $('add').disabled = used >= MAXSUB;
 }
 
-loadInfo(); loadList(); loadModes();
+loadInfo(); loadList(); loadModes(); loadAdblock();
 </script>
 </body>
 </html>
