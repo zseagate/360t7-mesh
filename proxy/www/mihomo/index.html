@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>代理管理 · mihomo</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+         max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; line-height: 1.6; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 22px; }
+  .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: #666; margin: 10px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 10px; font-size: 14px;
+          border: 1px solid #ccc; border-radius: 6px; background: transparent; color: inherit; }
+  button { padding: 8px 14px; font-size: 14px; border-radius: 6px; border: 1px solid #2b6cff;
+           background: #2b6cff; color: #fff; cursor: pointer; }
+  button.ghost { background: transparent; color: #2b6cff; }
+  button.mini { padding: 4px 10px; font-size: 13px; }
+  button.danger { border-color: #d9534f; background: transparent; color: #d9534f; }
+  button.warn { border-color: #e0a800; background: transparent; color: #b38600; }
+  button.on { background: #2b6cff; color: #fff; border-color: #2b6cff; }
+  .modes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .row { display: flex; gap: 10px; align-items: center; justify-content: space-between;
+         padding: 10px 0; border-bottom: 1px dashed #e3e3e3; }
+  .row:last-child { border-bottom: none; }
+  .row .meta { min-width: 0; flex: 1; }
+  .row .name { font-weight: 600; }
+  .row .url { font-size: 12px; color: #888; word-break: break-all; }
+  .acts { display: flex; gap: 6px; flex-shrink: 0; }
+  .empty { color: #999; font-size: 14px; padding: 8px 0; }
+  .hint { font-size: 12px; color: #999; margin-top: 6px; }
+  #msg, .msg { margin-top: 10px; font-size: 14px; }
+  .ok { color: #2e9d4f; } .err { color: #d9534f; }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+           background: #eef3ff; color: #2b6cff; margin-left: 6px; vertical-align: 1px; }
+  .badge.off { background: #eee; color: #999; }
+  .links a { color: #2b6cff; text-decoration: none; font-size: 14px; margin-right: 16px; }
+</style>
+</head>
+<body>
+<h1>代理管理</h1>
+<div class="sub">订阅增删、启停与全局出口切换都在这里；节点级别的选择去面板。</div>
+
+<div class="card">
+  <h2>当前出口</h2>
+  <div class="modes" id="modes"><span class="empty">读取中…</span></div>
+  <div class="hint">
+    默认锁定单一地区（如「香港」），只在该地区内换节点，<b>出口国家不变</b>，不容易触发风控。<br>
+    「自动最快」会跨地区测速，可能在香港/美国/日本之间来回跳，仅作备选；
+    「全部直连」等于临时关停代理。也可以到面板里直接钉死某一个具体节点，选择会被记住。
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div class="card">
+  <h2>订阅列表</h2>
+  <div id="list"><div class="empty">加载中…</div></div>
+</div>
+
+<div class="card">
+  <h2>新增订阅</h2>
+  <label>名称（字母数字 _ . -）</label>
+  <input id="name" placeholder="airport1" autocomplete="off">
+  <label>订阅链接（Clash / Mihomo 格式）</label>
+  <input id="url" placeholder="https://example.com/api/v1/client/subscribe?token=..." autocomplete="off">
+  <div style="margin-top:14px">
+    <button id="add">添加并应用</button>
+    <span class="hint" id="count"></span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>面板连接信息</h2>
+  <div class="hint" style="margin-bottom:8px">首次打开面板时填这两项，浏览器会记住；secret 存在路由器上，清浏览器不影响。</div>
+  <label>后端地址</label>
+  <input id="be" readonly>
+  <label>密钥（secret）</label>
+  <input id="sec" readonly>
+  <div style="margin-top:12px">
+    <a href="http://192.168.10.1:9090/ui/" target="_blank" style="color:#2b6cff;text-decoration:none;font-size:14px">打开面板（切节点/看延迟） →</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>修改密钥</h2>
+  <label>新密钥（字母数字 _ . -，≥8 位）</label>
+  <input id="newsec" placeholder="留空则不改" autocomplete="off">
+  <div style="margin-top:12px"><button class="ghost" id="setsec">保存密钥</button></div>
+  <div id="msg2" class="msg"></div>
+</div>
+
+<div class="card links">
+  <a href="/cgi-bin/luci" target="_blank">LuCI 管理</a>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const modeEl = $('modes'), listEl = $('list'), msgEl = $('msg');
+
+function setMsg(t, ok) { msgEl.textContent = t; msgEl.className = 'msg ' + (ok ? 'ok' : 'err'); }
+
+async function api(qs, body) {
+  const r = body
+    ? await fetch('/cgi-bin/mihomo-sub', {method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'}, body})
+    : await fetch('/cgi-bin/mihomo-sub' + (qs || ''));
+  return r.json();
+}
+
+const MODE_LABEL = {
+  'Auto': '自动最快（跨地区·慎用）',
+  'DIRECT': '全部直连（关停）'
+};
+const modeName = g => MODE_LABEL[g] || g.replace(/^sub-/, '订阅：');
+
+async function loadModes() {
+  try {
+    const j = await api('?mode=1');
+    modeEl.innerHTML = '';
+    for (const g of j.groups) {
+      const b = document.createElement('button');
+      b.className = 'ghost' + (g === j.mode ? ' on' : '');
+      b.textContent = modeName(g);
+      b.onclick = () => switchMode(g);
+      modeEl.appendChild(b);
+    }
+    if (!j.groups.length) modeEl.innerHTML = '<span class="empty">还没有可用分组（先添加订阅）</span>';
+  } catch (e) {
+    modeEl.innerHTML = '<span class="empty">读取失败：' + e + '</span>';
+  }
+}
+
+async function switchMode(g) {
+  const j = await api(null, 'action=mode&v=' + encodeURIComponent(g));
+  setMsg(j.msg, j.ok);
+  if (j.ok) loadModes();
+}
+
+async function loadList() {
+  try {
+    const items = await api();
+    updateCount(items.length);
+    if (!items.length) { listEl.innerHTML = '<div class="empty">还没有订阅</div>'; return; }
+    listEl.innerHTML = '';
+    for (const it of items) {
+      const row = document.createElement('div'); row.className = 'row';
+      const meta = document.createElement('div'); meta.className = 'meta';
+      const nm = document.createElement('div'); nm.className = 'name';
+      nm.textContent = it.name;
+      const badge = document.createElement('span');
+      badge.className = 'badge' + (it.enabled ? '' : ' off');
+      badge.textContent = it.enabled ? '已启用' : '已停用';
+      nm.appendChild(badge);
+      const ur = document.createElement('div'); ur.className = 'url'; ur.textContent = it.url;
+      meta.append(nm, ur);
+
+      const acts = document.createElement('div'); acts.className = 'acts';
+      const t = document.createElement('button');
+      t.className = 'mini ' + (it.enabled ? 'warn' : 'ghost');
+      t.textContent = it.enabled ? '停用' : '启用';
+      t.onclick = () => toggle(it.name);
+      const d = document.createElement('button');
+      d.className = 'mini danger'; d.textContent = '删除';
+      d.onclick = () => remove(it.name);
+      acts.append(t, d);
+
+      row.append(meta, acts);
+      listEl.appendChild(row);
+    }
+  } catch (e) {
+    listEl.innerHTML = '<div class="empty">读取失败：' + e + '</div>';
+  }
+}
+
+async function toggle(name) {
+  const j = await api(null, 'action=toggle&name=' + encodeURIComponent(name));
+  setMsg(j.msg, j.ok);
+  if (j.ok) setTimeout(() => { loadList(); loadModes(); }, 6500);
+}
+
+async function remove(name) {
+  if (!confirm('删除订阅「' + name + '」？')) return;
+  const j = await api(null, 'action=del&name=' + encodeURIComponent(name));
+  setMsg(j.msg, j.ok);
+  if (j.ok) setTimeout(() => { loadList(); loadModes(); }, 6500);
+}
+
+$('add').onclick = async () => {
+  const name = $('name').value.trim(), url = $('url').value.trim();
+  if (!name || !url) return setMsg('名称和链接都要填', false);
+  const j = await api(null, 'action=add&name=' + encodeURIComponent(name) + '&url=' + encodeURIComponent(url));
+  setMsg(j.msg, j.ok);
+  if (j.ok) { $('name').value = ''; $('url').value = ''; setTimeout(() => { loadList(); loadModes(); }, 6500); }
+};
+
+$('setsec').onclick = async () => {
+  const v = $('newsec').value.trim(), el = $('msg2');
+  if (v.length < 8) { el.textContent = '至少 8 位'; el.className = 'msg err'; return; }
+  const j = await api(null, 'action=secret&url=' + encodeURIComponent(v));
+  el.textContent = j.msg; el.className = 'msg ' + (j.ok ? 'ok' : 'err');
+  if (j.ok) { $('newsec').value = ''; setTimeout(loadInfo, 6500); }
+};
+
+let MAXSUB = 10;
+async function loadInfo() {
+  try {
+    const j = await api('?info=1');
+    $('be').value = j.backend || '';
+    $('sec').value = j.secret || '';
+    if (j.max) MAXSUB = j.max;
+    updateCount(j.count);
+  } catch (e) {}
+}
+
+function updateCount(n) {
+  const el = $('count');
+  if (!el) return;
+  const used = (typeof n === 'number') ? n : 0;
+  el.textContent = `已用 ${used}/${MAXSUB}`;
+  el.style.color = used >= MAXSUB ? '#d9534f' : '#999';
+  $('add').disabled = used >= MAXSUB;
+}
+
+loadInfo(); loadList(); loadModes();
+</script>
+</body>
+</html>

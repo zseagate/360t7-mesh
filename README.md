@@ -3,6 +3,9 @@
 > 实战记录：用两台 360 T7 路由器（MediaTek Filogic MT7981，OpenWrt 24.10 / bleachwrt mini），
 > 通过 **802.11s mesh 无线回程**打通客厅与卧室，全屋同一副 SSID，手机拿在手里无缝漫游。
 > 本文不含真实 SSID / 密码 / MAC，示例一律用占位名。
+>
+> 第二阶段（[proxy/](proxy/README.md)）：在同一套网络里叠加 **mihomo 透明代理 + 广告拦截 + 中文网页管理**，
+> 纯 TUN 模式，不需要 firewall4。
 
 - 作者：zseagate
 - 日期：2026-10-27
@@ -348,7 +351,42 @@ brctl showmacs br-lan | awk 'NR>2 && $2=="no"{c[$1]++}END{for(m in c)if(c[m]>1)p
 
 ---
 
-## 9. 仓库结构
+## 9. 进阶：代理 + 广告拦截（mihomo）
+
+Mesh 打通之后，同一套网络里再叠加「出国 + 去广告」。完整实现、安装脚本与排坑见
+**[proxy/README.md](proxy/README.md)**，这里只列要点：
+
+```
+LAN 客户端 → dnsmasq:53 → mihomo DNS:1053（redir-host，DoH 上游）
+                        ↘ TUN(mihomo0) → 规则分流
+                                          ├─ RULE-SET,adblock → REJECT
+                                          ├─ 内网 / GEOIP,CN → DIRECT
+                                          └─ 其余 → Proxy（地区组 / Auto / DIRECT）
+```
+
+| 能力 | 实现 |
+|---|---|
+| 透明代理 | mihomo（Clash.Meta）**纯 TUN 模式**，不需要 firewall4 / nft tproxy |
+| 订阅管理 | 中文网页 `http://<路由器IP>/mihomo/`，也可从 LuCI **服务 → 代理管理** 进入；最多 10 个订阅 |
+| 出口切换 | 默认锁定**单一地区**（同地区内换节点、出口国家不变，避免跨国跳变触发风控）；`Auto` 仅备选，另有 `DIRECT` 一键关停 |
+| 广告拦截 | anti-AD 约 9.9 万条，`adblock-update` 每天 4:30 自动更新并热重载 |
+| 备份 | `mihomo-backup` 每天 4:00 备份，保留 5 份、内容去重 |
+
+```sh
+# 部署（内核需先放到 /usr/bin/mihomo）
+sh proxy/install.sh --dry-run
+sh proxy/install.sh
+```
+
+⚠️ 三个关键点（详见 proxy/README.md 排坑）：
+
+1. 本固件没有 `firewall4`，**Nikki / OpenClash 这类基于 fw4 的方案装不上**，TUN 模式才是正解；
+2. `dnsmasq` 的 `server` 是 **list**，必须 `uci add_list` + `noresolv=1`；
+3. `mihomo0` 必须加进 LAN 防火区域，否则 LAN→tun 转发被丢。
+
+---
+
+## 10. 仓库结构
 
 ```
 360t7-mesh/
@@ -357,11 +395,21 @@ brctl showmacs br-lan | awk 'NR>2 && $2=="no"{c[$1]++}END{for(m in c)if(c[m]>1)p
 ├── patches/
 │   ├── fix-mesh-frequency.sh        ← 根治 mesh "frequency=5745.0" bug
 │   └── apply-mesh-config.example.sh ← 两台的 uci 配置成稿（已脱敏）
-└── scripts/
-    └── verify-mesh.sh               ← 一键验收脚本
+├── scripts/
+│   └── verify-mesh.sh               ← 一键验收脚本
+└── proxy/                           ← 进阶：代理 + 去广告
+    ├── README.md                    ← 完整说明与排坑
+    ├── install.sh                   ← 一键部署（支持 --dry-run）
+    ├── gen-config.sh                ← 由订阅生成 config.yaml（含地区分组）
+    ├── regions.conf                 ← 地区分组定义
+    ├── mihomo.init                  ← procd 自启
+    ├── adblock-update.sh            ← 广告规则自动更新
+    ├── mihomo-backup.sh             ← 备份/恢复/轮转
+    ├── www/                         ← 中文管理页 + CGI 后端
+    └── luci/                        ← 挂到 LuCI「服务 → 代理管理」
 ```
 
-## 10. 一键验收脚本
+## 11. 一键验收脚本
 
 ```sh
 ./verify-mesh.sh            # 本地跑,输出 ✅/⚠️ 清单
@@ -369,13 +417,14 @@ brctl showmacs br-lan | awk 'NR>2 && $2=="no"{c[$1]++}END{for(m in c)if(c[m]>1)p
 
 ---
 
-## 11. 安全与脱敏
+## 12. 安全与脱敏
 
 - 本文所有 SSID 均为示例占位（`MainWiFi-*` / `MeshBackhaul`）；
 - 所有密码统一用 `<你的WiFi密码>` / `<你的mesh密码>`；
 - MAC 全部截断；
+- `proxy/` 目录不含任何真实订阅链接、密钥或 token（`secret` 由 `install.sh` 现场随机生成）；
 - 实际部署时**不要**把密码写进任何会被 push 到 Git 的文件。
 
-## 12. License
+## 13. License
 
 MIT

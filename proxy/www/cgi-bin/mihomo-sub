@@ -1,0 +1,177 @@
+#!/bin/sh
+# mihomo 订阅管理 CGI
+#   GET              -> 订阅列表 JSON [{name,url,enabled}]
+#   GET ?info=1      -> 面板连接信息 {backend,secret}
+#   GET ?mode=1      -> 当前全局模式 {mode,groups}
+#   POST action=add&name=&url=
+#   POST action=del&name=
+#   POST action=toggle&name=                     启用/停用
+#   POST action=mode&v=Auto|DIRECT|<组名>        切换全局出口
+#   POST action=secret&url=<新密钥>
+SUBS=/etc/mihomo/subs.list
+GEN=/etc/mihomo/gen-config.sh
+API=http://127.0.0.1:9090
+MAX_SUBS=10
+
+[ -f "$SUBS" ] || : > "$SUBS"
+
+urldecode() {
+	printf '%b' "$(printf '%s' "$1" | sed -e 's/+/ /g' -e 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g')"
+}
+sanitize()   { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_' | cut -c1-40; }
+json_escape(){ printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+secret()     { cat /etc/mihomo/.secret 2>/dev/null; }
+count_subs() { grep -c . "$SUBS" 2>/dev/null || echo 0; }
+
+# 原子写入：先写临时文件，再改名；改前留一份 .bak
+write_subs() {
+	cat > "$SUBS.tmp" || return 1
+	[ -s "$SUBS.tmp" ] || { rm -f "$SUBS.tmp"; return 1; }
+	cp -f "$SUBS" "$SUBS.bak" 2>/dev/null
+	# 保留最近 5 份带时间戳的快照，误删时可回滚
+	cp -f "$SUBS" "$SUBS.bak.$(date +%Y%m%d-%H%M%S)" 2>/dev/null
+	i=0
+	for f in $(ls -1t "$SUBS".bak.* 2>/dev/null); do
+		i=$((i+1))
+		[ "$i" -gt 5 ] && rm -f "$f"
+	done
+	mv -f "$SUBS.tmp" "$SUBS"
+}
+
+echo "Content-Type: application/json; charset=utf-8"
+echo "Cache-Control: no-store"
+echo
+
+api_put() { # $1=path $2=json
+	curl -sS -m 15 -o /dev/null -w '%{http_code}' -X PUT \
+		-H "Authorization: Bearer $(secret)" -H 'Content-Type: application/json' \
+		-d "$2" "$API$1" 2>/dev/null
+}
+
+if [ "$REQUEST_METHOD" = "POST" ]; then
+	LEN=${CONTENT_LENGTH:-0}
+	[ "$LEN" -gt 8192 ] && LEN=8192
+	BODY=$(dd bs=1 count="$LEN" 2>/dev/null)
+	ACTION=""; NAME=""; URL=""; VAL=""
+	for pair in $(printf '%s' "$BODY" | tr '&' '\n'); do
+		k=${pair%%=*}; v=${pair#*=}
+		case "$k" in
+			action) ACTION=$(urldecode "$v") ;;
+			name)   NAME=$(urldecode "$v") ;;
+			url)    URL=$(urldecode "$v") ;;
+			v)      VAL=$(urldecode "$v") ;;
+		esac
+	done
+
+	case "$ACTION" in
+	add)
+		NAME=$(sanitize "$NAME")
+		case "$URL" in
+			http://*|https://*) ;;
+			*) echo '{"ok":false,"msg":"订阅链接必须以 http:// 或 https:// 开头"}'; exit 0 ;;
+		esac
+		[ -z "$NAME" ] && { echo '{"ok":false,"msg":"名称不能为空"}'; exit 0; }
+		grep -q "^$NAME|" "$SUBS" 2>/dev/null && { echo '{"ok":false,"msg":"同名订阅已存在，请换个名称"}'; exit 0; }
+		cnt=$(count_subs)
+		if [ "$cnt" -ge "$MAX_SUBS" ]; then
+			echo "{\"ok\":false,\"msg\":\"最多支持 $MAX_SUBS 个订阅，已用 $cnt 个。请先删除不用的\"}"
+			exit 0
+		fi
+		{ cat "$SUBS" 2>/dev/null; printf '%s|%s|1\n' "$NAME" "$URL"; } | write_subs || {
+			echo '{"ok":false,"msg":"写入失败"}'; exit 0; }
+		logger -t mihomo-ui "订阅已添加: $NAME（共 $(count_subs) 个）"
+		;;
+	del)
+		NAME=$(sanitize "$NAME")
+		grep -q "^$NAME|" "$SUBS" 2>/dev/null || { echo '{"ok":false,"msg":"订阅不存在"}'; exit 0; }
+		grep -v "^$NAME|" "$SUBS" | write_subs || { echo '{"ok":false,"msg":"写入失败"}'; exit 0; }
+		logger -t mihomo-ui "订阅已删除: $NAME（剩 $(count_subs) 个）"
+		;;
+	toggle)
+		NAME=$(sanitize "$NAME")
+		cur=$(awk -F'|' -v n="$NAME" '$1==n{print ($3==""?1:$3)}' "$SUBS")
+		[ -z "$cur" ] && { echo '{"ok":false,"msg":"订阅不存在"}'; exit 0; }
+		new=$((1-cur))
+		awk -F'|' -v n="$NAME" -v v="$new" 'BEGIN{OFS="|"} $1==n{$3=v; print; next} NF==2{print $1,$2,1; next} {print}' "$SUBS" | write_subs || {
+			echo '{"ok":false,"msg":"写入失败"}'; exit 0; }
+		logger -t mihomo-ui "订阅$([ "$new" = "1" ] && echo 启用 || echo 停用): $NAME"
+		;;
+	mode)
+		case "$VAL" in
+			"") echo '{"ok":false,"msg":"缺少模式参数"}'; exit 0 ;;
+			*'"'*|*\\*) echo '{"ok":false,"msg":"非法模式"}'; exit 0 ;;
+		esac
+		code=$(api_put "/proxies/Proxy" "{\"name\":\"$VAL\"}")
+		if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+			echo "{\"ok\":true,\"msg\":\"已切换到 $VAL\"}"
+		elif [ "$code" = "404" ]; then
+			echo '{"ok":false,"msg":"该分组不存在（订停止用后需重新生成配置）"}'
+		else
+			echo "{\"ok\":false,\"msg\":\"切换失败（HTTP ${code:-timeout}）\"}"
+		fi
+		exit 0
+		;;
+	secret)
+		SEC=$(urldecode "$URL")
+		case "$SEC" in
+			""|*[!A-Za-z0-9_.-]*) echo '{"ok":false,"msg":"密钥只能用字母数字和 _ . -"}'; exit 0 ;;
+		esac
+		[ ${#SEC} -lt 8 ] && { echo '{"ok":false,"msg":"密钥至少 8 位"}'; exit 0; }
+		printf '%s' "$SEC" > /etc/mihomo/.secret
+		chmod 600 /etc/mihomo/.secret
+		;;
+	*)
+		echo '{"ok":false,"msg":"未知操作"}'; exit 0 ;;
+	esac
+
+	# 订阅变更后重新生成配置并重启
+	if [ -x "$GEN" ]; then
+		out=$("$GEN" 2>&1)
+		case "$out" in
+			*"config OK"*)
+				setsid sh -c '/etc/init.d/mihomo restart' </dev/null >/dev/null 2>&1 &
+				echo '{"ok":true,"msg":"已保存，服务正在重启（约 5 秒）"}'
+				;;
+			*)
+				detail=$(printf '%s' "$out" | tail -2 | tr '\n' ' ')
+				echo "{\"ok\":false,\"msg\":\"配置校验失败：$(json_escape "$detail")\"}"
+				;;
+		esac
+	else
+		echo '{"ok":false,"msg":"缺少生成脚本 gen-config.sh"}'
+	fi
+	exit 0
+fi
+
+# ---------- GET ----------
+case "$QUERY_STRING" in
+info=1)
+	IP=$(uci -q get network.lan.ipaddr)
+	printf '{"backend":"http://%s:9090","secret":"%s","max":%s,"count":%s}\n' \
+		"${IP:-192.168.10.1}" "$(secret)" "$MAX_SUBS" "$(count_subs)"
+	exit 0 ;;
+mode=1)
+	raw=$(curl -sS -m 8 -H "Authorization: Bearer $(secret)" "$API/proxies/Proxy" 2>/dev/null)
+	now=$(printf '%s' "$raw" | sed -n 's/.*"now":"\([^"]*\)".*/\1/p')
+	[ -z "$now" ] && now="unknown"
+	groups=""
+	for g in $(grep '^  - name: ' /etc/mihomo/config.yaml 2>/dev/null | sed 's/.*name: //'); do
+		[ "$g" = "Proxy" ] && continue
+		[ -n "$groups" ] && groups="$groups,"
+		groups="$groups\"$(json_escape "$g")\""
+	done
+	printf '{"mode":"%s","groups":[%s]}\n' "$(json_escape "$now")" "$groups"
+	exit 0 ;;
+esac
+
+# 默认：订阅列表（兼容两字段旧格式）
+printf '['
+first=1
+while IFS='|' read -r n u e; do
+	[ -z "$n" ] && continue
+	[ -z "$e" ] && e=1
+	[ "$first" -eq 0 ] && printf ','
+	first=0
+	printf '{"name":"%s","url":"%s","enabled":%s}' "$(json_escape "$n")" "$(json_escape "$u")" "$e"
+done < "$SUBS"
+printf ']\n'
