@@ -74,7 +74,7 @@
 | LAN IP | **192.168.10.1** | **192.168.10.2** | 卧室默认 192.168.1.1 必须改 |
 | 2.4G 信道 | **ch6 / HE20** | **ch1 / HE20** | 错开频道，别叠加 |
 | 5G 信道 | **ch149 / HE80 + noscan=1** | **ch149 / HE80 + noscan=1** | mesh 必须同频 |
-| 5G 发射功率 | 29 dBm | **23 dBm**（调低，降同频干扰） | 同频 AP 功率高反而坏事 |
+| 5G 发射功率 | **23 dBm** | **23 dBm**（必须对齐） | 一侧功率更高会把边界客户端吸住，见坑 6 |
 | SSID（2.4G） | `MainWiFi-2G` | 同名同密码 | |
 | SSID（5G） | `MainWiFi-5G` | 同名同密码 | |
 | encryption | `psk-mixed` | 同 | |
@@ -340,6 +340,45 @@ netstat -lnt | grep "192.168.1.1"     # 一切"绑死在旧网段"的服务
 brctl showmacs br-lan | awk 'NR>2 && $2=="no"{c[$1]++}END{for(m in c)if(c[m]>1)print "DUP:",m,c[m]}'
 ```
 
+### 坑 6：边界区域"WiFi 已连接，但无法访问互联网"
+
+**现象**：在客厅与卧室中间的位置，手机显示连上了 5G，但实际打不开网页（Android 还会提示"已连接，无法访问互联网"）。
+
+**两个叠加原因**：
+
+1. **发射功率不对称**：客厅 5G 设了 29 dBm，卧室只有 23 dBm。边界处客厅信号仍然"看起来更强"，
+   客户端就挂在客厅那台上，实际已经 -80dBm 左右，重传高、速率掉到几十 Mbps 甚至 0。
+2. **没有主动"赶人"机制**：802.11r/k/v 只是"能力"，AP 不会主动让客户端走。
+   本固件的 hostapd ubus **不支持 `rrm_nr_set` 字符串格式**（返回 `Invalid argument`），
+   所以 11k 邻居表注入不了；11v 也只是"允许客户端请求切换"，默认没人发引导帧。
+
+**修法**：
+
+```sh
+# ① 功率对齐（两台 5G 都 23 dBm；改完立即验证 mesh 不受影响）
+uci set wireless.radio1.txpower='23'; uci commit wireless
+iw phy phy1 set txpower fixed 2300          # 立即生效，不用重启无线
+
+# ② 部署 roam-steer：每 30s 扫一次，弱信号客户端先 11v 引导，仍不走再强制断开
+scp scripts/roam-steer.sh root@192.168.10.1:/usr/sbin/roam-steer
+scp scripts/roam-steer.init root@192.168.10.1:/etc/init.d/roam-steer
+ssh root@192.168.10.1 '/etc/init.d/roam-steer enable && /etc/init.d/roam-steer start'
+# 两台都要装：各自负责自己 BSS 上的客户端
+```
+
+`roam-steer` 的实现要点：
+
+- 阈值 `THRESH=-72dBm`、`MIN_AGE=90s`（防抖）、冷却期内最多引导 `KICK_MAX=2` 次后 `del_client` 强制断开；
+- 引导用 `ubus call hostapd.<if> bss_transition_request`，强踢用 `ubus call hostapd.<if> del_client`（**都不需要 hostapd_cli**）；
+- 先用 `--dry-run` 验证：
+  ```sh
+  THRESH=-40 MIN_AGE=0 roam-steer --dry-run   # 故意放宽阈值，确认能识别到客户端
+  roam-steer --dry-run                        # 默认参数下应为空，说明当前没有弱信号客户端
+  ```
+
+**验证**：修完后边界处手机会在 -70dBm 左右主动切到更近的 AP，`hostapd` 日志能看到
+`bss_tm_req`；`iw dev wlan1-1 station dump` 里的 `tx retries` 不再持续暴涨。
+
 ---
 
 ## 7. 性能数据（本次实测）
@@ -416,7 +455,9 @@ sh proxy/install.sh
 │   ├── fix-mesh-frequency.sh        ← 根治 mesh "frequency=5745.0" bug
 │   └── apply-mesh-config.example.sh ← 两台的 uci 配置成稿（已脱敏）
 ├── scripts/
-│   └── verify-mesh.sh               ← 一键验收脚本
+│   ├── verify-mesh.sh               ← 一键验收脚本
+│   ├── roam-steer.sh                ← 弱信号客户端 11v 引导（解决边界"已连接无网络"）
+│   └── roam-steer.init              ← 上面脚本的 procd 服务
 └── proxy/                           ← 进阶：代理 + 去广告
     ├── README.md                    ← 完整说明与排坑
     ├── install.sh                   ← 一键部署（支持 --dry-run）
