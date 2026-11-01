@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>正在连接面板…</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+         display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
+         background:#0d1b2a; color:#e9eef5; }
+  .box { text-align:center; line-height:1.8; }
+  .spin { width:26px; height:26px; border:3px solid #2b6cff; border-top-color:transparent;
+          border-radius:50%; margin:0 auto 14px; animation:r 0.9s linear infinite; }
+  @keyframes r { to { transform:rotate(360deg); } }
+  .tip { font-size:13px; color:#93a4b8; }
+  a { color:#6ea8ff; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="spin"></div>
+  <div>正在写入后端地址与密钥…</div>
+  <div class="tip">如果 3 秒后没有跳转，<a id="go" href="/ui/">点这里手动进入</a></div>
+</div>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var host = location.hostname || '127.0.0.1';
+  var port = location.port || '9090';
+  var url = q.get('url') || ('http://' + host + ':' + port);
+  var secret = q.get('secret') || '';
+
+  // metacubexd 把后端存在 localStorage：
+  //   endpointList = [{id, url, secret}, ...]
+  //   selectedEndpoint = <id>
+  var list = [];
+  try { list = JSON.parse(localStorage.getItem('endpointList') || '[]'); } catch (e) { list = []; }
+  if (!Array.isArray(list)) list = [];
+
+  // 注意：metacubexd 要求端点 id 必须是 UUID v4 格式，其它格式会被忽略
+  function uuidv4() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+  var id = uuidv4();
+
+  var idx = -1;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].url === url) { idx = i; break; }
+  }
+  if (idx >= 0) {
+    list[idx].secret = secret;
+    id = list[idx].id || id;
+  } else {
+    list.push({ id: id, url: url, secret: secret });
+  }
+
+  localStorage.setItem('endpointList', JSON.stringify(list));
+  localStorage.setItem('selectedEndpoint', id);
+  // 让面板启动时自动使用已保存的端点
+  localStorage.setItem('autoSwitchEndpoint', 'true');
+
+  var jump = '/ui/#/overview';
+  document.getElementById('go').href = jump;
+  setTimeout(function () { location.replace(jump); }, 300);
+})();
+</script>
+</body>
+</html>

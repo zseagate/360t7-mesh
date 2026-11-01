@@ -110,7 +110,7 @@
   <label>密钥（secret）</label>
   <input id="sec" readonly>
   <div style="margin-top:12px">
-    <a href="http://192.168.10.1:9090/ui/" target="_blank" style="color:#2b6cff;text-decoration:none;font-size:14px">打开面板（切节点/看延迟） →</a>
+    <a id="panel-link" href="http://192.168.10.1:9090/ui/" target="_blank" style="color:#2b6cff;text-decoration:none;font-size:14px">打开面板（自动登录，切节点/看延迟） →</a>
   </div>
 </div>
 
@@ -320,6 +320,12 @@ async function loadInfo() {
     const j = await api('?info=1');
     $('be').value = j.backend || '';
     $('sec').value = j.secret || '';
+    // 点链接自动把后端地址+密钥写进面板的 localStorage，免手填
+    const link = $('panel-link');
+    if (link && j.backend) {
+      link.href = j.backend + '/ui/connect.html?url=' + encodeURIComponent(j.backend)
+                + '&secret=' + encodeURIComponent(j.secret || '');
+    }
     if (j.max) MAXSUB = j.max;
     updateCount(j.count);
   } catch (e) {}

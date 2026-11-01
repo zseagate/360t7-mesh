@@ -121,8 +121,23 @@ mkdir -p /etc/mihomo/ui && tar xzf mcd.tgz -C /etc/mihomo/ui && \
 /etc/init.d/mihomo restart
 ```
 
-`config.yaml` 里的 `external-ui: ui` 已指向该目录，重启后访问 `http://<路由器IP>:9090/ui/`，
-首次进入填「后端地址 `http://<路由器IP>:9090`」+「密钥（secret）」即可，浏览器会记住。
+`config.yaml` 里的 `external-ui: ui` 已指向该目录，重启后访问 `http://<路由器IP>:9090/ui/`。
+
+**免手填登录**：仓库里的 `www/panel-connect.html` 要放到 `/etc/mihomo/ui/connect.html`，
+管理页的「打开面板」链接会自动带上后端地址和 secret 指向它：
+
+```
+http://<IP>:9090/ui/connect.html?url=http://<IP>:9090&secret=<secret>
+```
+
+它会写入 metacubexd 的 `localStorage`（`endpointList` + `selectedEndpoint`）再跳到面板，
+**不需要手填**。
+
+⚠️ 两个坑：
+
+1. `endpointList` 里每个端点的 `id` **必须是 UUID v4**（`xxxxxxxx-xxxx-4xxx-yxxx-...`），
+   用 `ep-xxx` 这类自定义 id 会被面板忽略，表现为一直停在连接页；
+2. metacubexd 的 `index.html` 有 service worker 缓存，改完页面记得硬刷新。
 
 ### 代理总开关（停用/开启）
 
