@@ -45,6 +45,18 @@
 <div class="sub">订阅增删、启停与全局出口切换都在这里；节点级别的选择去面板。</div>
 
 <div class="card">
+  <h2>代理总开关</h2>
+  <div id="proxy-status" class="hint">读取中…</div>
+  <div style="margin-top:10px">
+    <button id="proxy-toggle">…</button>
+  </div>
+  <div class="hint" style="margin-top:8px">
+    关闭后：停止 mihomo，并把 DNS 切回运营商（全屋走直连、广告拦截也同时失效）；再打开会自动恢复。
+  </div>
+  <div id="proxy-msg" class="msg"></div>
+</div>
+
+<div class="card">
   <h2>当前出口</h2>
   <div class="modes" id="modes"><span class="empty">读取中…</span></div>
   <div class="hint">
@@ -149,6 +161,38 @@ async function switchMode(g) {
   setMsg(j.msg, j.ok);
   if (j.ok) loadModes();
 }
+
+let proxyOn = true;
+async function loadProxy() {
+  try {
+    const j = await api('?proxy=1');
+    proxyOn = !!j.enabled;
+    $('proxy-status').innerHTML = (j.enabled ? '状态：<b>已开启</b>' : '状态：<b style="color:#d9534f">已关闭（直连）</b>')
+      + ' ｜ mihomo 进程 ' + (j.running ? '<b>运行中</b>' : '<span style="color:#999">未运行</span>');
+    $('proxy-toggle').textContent = j.enabled ? '停用代理' : '开启代理';
+    $('proxy-toggle').className = j.enabled ? 'danger' : '';
+    // 关掉时代理相关操作不可用
+    const dis = !j.enabled;
+    $('modes').style.opacity = dis ? 0.4 : 1;
+    $('modes').style.pointerEvents = dis ? 'none' : 'auto';
+    $('adb-toggle').disabled = dis;
+    $('adb-update').disabled = dis;
+  } catch (e) {
+    $('proxy-status').textContent = '读取失败：' + e;
+  }
+}
+
+$('proxy-toggle').onclick = async () => {
+  const target = proxyOn ? 'off' : 'on';
+  const el = $('proxy-msg');
+  $('proxy-toggle').disabled = true;
+  el.textContent = target === 'off' ? '正在停止…' : '正在启动…';
+  el.className = 'msg';
+  const j = await api(null, 'action=proxy_set&v=' + target);
+  el.textContent = j.msg; el.className = 'msg ' + (j.ok ? 'ok' : 'err');
+  $('proxy-toggle').disabled = false;
+  setTimeout(() => { loadProxy(); loadModes(); loadAdblock(); }, 2500);
+};
 
 let adbTimer = null;
 async function loadAdblock() {
@@ -282,7 +326,7 @@ function updateCount(n) {
   $('add').disabled = used >= MAXSUB;
 }
 
-loadInfo(); loadList(); loadModes(); loadAdblock();
+loadInfo(); loadList(); loadModes(); loadAdblock(); loadProxy();
 </script>
 </body>
 </html>

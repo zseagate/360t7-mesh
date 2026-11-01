@@ -9,9 +9,13 @@ DIR=/etc/mihomo
 CONF=$DIR/config.yaml
 
 start_service() {
+	# 总开关关闭时不启动（见 mihomo-switch）
+	[ -f /etc/mihomo/disabled ] && { logger -t mihomo "disabled by /etc/mihomo/disabled, skip start"; return 2; }
 	[ -x "$PROG" ] || { logger -t mihomo "binary missing"; return 1; }
 	[ -f "$CONF" ] || { logger -t mihomo "config missing"; return 1; }
 	procd_open_instance
+	# 限制 Go 堆，避免在 256MB 设备上被内核 OOM 杀（实测曾被杀 7 次）
+	procd_set_param env GOGC=40 GOMEMLIMIT=80MiB
 	procd_set_param command "$PROG" -d "$DIR" -f "$CONF"
 	procd_set_param respawn 3600 5 0
 	procd_set_param file "$CONF"

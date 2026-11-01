@@ -96,6 +96,19 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 			echo '{"ok":false,"msg":"写入失败"}'; exit 0; }
 		logger -t mihomo-ui "订阅$([ "$new" = "1" ] && echo 启用 || echo 停用): $NAME"
 		;;
+	proxy_set)
+		case "$VAL" in
+			on|off) ;;
+			*) echo '{"ok":false,"msg":"非法参数"}'; exit 0 ;;
+		esac
+		/usr/sbin/mihomo-switch "$VAL" >/dev/null 2>&1
+		if [ "$VAL" = "on" ]; then
+			echo '{"ok":true,"msg":"代理已开启"}'
+		else
+			echo '{"ok":true,"msg":"代理已关闭，DNS 已切回直连"}'
+		fi
+		exit 0
+		;;
 	adblock_toggle)
 		cur=$(cat /etc/mihomo/adblock.enabled 2>/dev/null || echo 1)
 		[ "$cur" = "1" ] && new=0 || new=1
@@ -165,6 +178,12 @@ info=1)
 	IP=$(uci -q get network.lan.ipaddr)
 	printf '{"backend":"http://%s:9090","secret":"%s","max":%s,"count":%s}\n' \
 		"${IP:-192.168.10.1}" "$(secret)" "$MAX_SUBS" "$(count_subs)"
+	exit 0 ;;
+proxy=1)
+	if [ -f /etc/mihomo/disabled ]; then en=0; else en=1; fi
+	run=0
+	/etc/init.d/mihomo status 2>&1 | grep -q "^running" && run=1
+	printf '{"enabled":%s,"running":%s}\n' "$en" "$run"
 	exit 0 ;;
 adblock=1)
 	en=$(cat /etc/mihomo/adblock.enabled 2>/dev/null || echo 1)

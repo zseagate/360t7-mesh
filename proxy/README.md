@@ -107,6 +107,7 @@ ssh root@192.168.10.1 'sh /tmp/proxy/install.sh'
 |---|---|
 | 订阅管理（增删/停启/切出口） | `http://<路由器IP>/mihomo/`，或 LuCI **服务 → 代理管理** |
 | 节点面板（切具体节点、看延迟） | `http://<路由器IP>:9090/ui/`，密钥见 `cat /etc/mihomo/.secret` || 广告规则状态 | `adblock-update --status` |
+| 代理总开关 | 管理页顶部「代理总开关」：一键启停 mihomo，**同时切换 DNS 链路** |
 | 备份 / 恢复 | `mihomo-backup` / `mihomo-backup restore <文件>` |
 
 ### 可选：安装节点面板（metacubexd）
@@ -122,6 +123,19 @@ mkdir -p /etc/mihomo/ui && tar xzf mcd.tgz -C /etc/mihomo/ui && \
 
 `config.yaml` 里的 `external-ui: ui` 已指向该目录，重启后访问 `http://<路由器IP>:9090/ui/`，
 首次进入填「后端地址 `http://<路由器IP>:9090`」+「密钥（secret）」即可，浏览器会记住。
+
+### 代理总开关（停用/开启）
+
+```
+mihomo-switch on       # 启动 mihomo + dnsmasq 上游指回 127.0.0.1#1053
+mihomo-switch off      # 停 mihomo + dnsmasq 上游改回运营商（否则全屋断 DNS）
+mihomo-switch status   # on/off
+mihomo-switch toggle
+```
+
+- 状态记在 `/etc/mihomo/disabled`，开机时 `/etc/init.d/mihomo` 会据此跳过启动；
+- 关闭后全屋走直连、广告拦截同时失效（拦截规则在 mihomo 里）；
+- 管理页顶部「代理总开关」按钮就是调它，关闭时代理相关按钮自动置灰。
 
 ### 出口策略：为什么不默认「自动最快」
 
@@ -215,7 +229,10 @@ mihomo-backup list|restore|clean
 7. **订阅写入竞态**：早期版本每次请求都重写 `subs.list`，并发提交会丢条目；
    现在改为「读全量 → 写临时文件 → `mv` 原子替换」，并保留 5 份带时间戳快照。
 8. **`grep` 不支持 `(?i)`**：mihomo 的 filter 支持，但生成器里做预判时要去掉，改用 `grep -i`。
-9. **地区误匹配**：判断某个地区有没有节点时，只匹配 `name:` 行，否则 URL 里的 `de`/`uk` 会造成误判。
+9. **内存红线**：256MB 设备上 mihomo 堆峰值可达 80MB，曾被内核 OOM 杀过 7 次；
+   init 脚本里已加 `GOGC=40 GOMEMLIMIT=80MiB` 限制 Go 堆。若仍频繁 OOM，优先关掉
+   haproxy / mwan3 / appfilter 等无用服务（它们各占 2–8MB）。
+10. **地区误匹配**：判断某个地区有没有节点时，只匹配 `name:` 行，否则 URL 里的 `de`/`uk` 会造成误判。
 
 ---
 
