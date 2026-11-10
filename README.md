@@ -366,18 +366,27 @@ ssh root@192.168.10.1 '/etc/init.d/roam-steer enable && /etc/init.d/roam-steer s
 # 两台都要装：各自负责自己 BSS 上的客户端
 ```
 
-`roam-steer` 的实现要点：
+`roam-steer` 的实现要点（**v2，2026-11-10 加固**）：
 
-- 阈值 `THRESH=-72dBm`、`MIN_AGE=90s`（防抖）、冷却期内最多引导 `KICK_MAX=2` 次后 `del_client` 强制断开；
+- 断联死循环教训：**卧室 AP 断电后，本脚本曾把自己变成断联源**——客户端无 AP 可去，
+  引导必然"无效"，退避防抖不够，导致手机每天上百次掉联。v2 加了三道闸：
+  1. **全局前置判断**：处理 5G 客户端前先探测 5G mesh 回程有无对端（对端离线时整周期跳过，
+     日志记 `mesh 回程无对端(卧室 AP 疑似离线)`，每小时最多提醒一次）；2.4G 侧要求 5G AP 接口存在；
+  2. **阈值放宽**：`THRESH=-78dBm`（-72~-78 属"可用但在边缘"，不值得赶）；
+  3. **指数退避**：冷却 `BASE_CD=900s` 按轮次翻倍（900→1800→3600s），
+     引导满 `KICK_MAX=2` 次才强踢、最多 `KICK_TOTAL=3` 轮，之后隔音 `MUTE=3600s` 绝不反复踢；
+
+- 参数：`THRESH=-78` `MIN_AGE=120` `BASE_CD=900` `KICK_MAX=2` `KICK_TOTAL=3` `MUTE=3600`（均可环境变量覆盖）；
 - 引导用 `ubus call hostapd.<if> bss_transition_request`，强踢用 `ubus call hostapd.<if> del_client`（**都不需要 hostapd_cli**）；
-- 先用 `--dry-run` 验证：
+- `--dry-run` 只打印不写状态文件，可随时跑：
   ```sh
   THRESH=-40 MIN_AGE=0 roam-steer --dry-run   # 故意放宽阈值，确认能识别到客户端
   roam-steer --dry-run                        # 默认参数下应为空，说明当前没有弱信号客户端
   ```
 
-**验证**：修完后边界处手机会在 -70dBm 左右主动切到更近的 AP，`hostapd` 日志能看到
-`bss_tm_req`；`iw dev wlan1-1 station dump` 里的 `tx retries` 不再持续暴涨。
+**验证**：修完后边界处手机会在 ~-75dBm 左右主动切到更近的 AP，`hostapd` 日志能看到
+`bss_tm_req`；若日志里只看到不断重复的 `del_client` 而**没有别的方向可去**，先检查那侧 AP
+是不是离线了——脚本正确的前提是网上确实存在更好的落脚点。
 
 ---
 
@@ -407,6 +416,7 @@ ssh root@192.168.10.1 '/etc/init.d/roam-steer enable && /etc/init.d/roam-steer s
 | mesh SSID 出现在手机 WiFi 列表里 | 802.11s 规范要求 beacon 里必带 mesh_id，**无法隐藏** | 属正常，不要去连 |
 | 管理机改 IP 后 LuCI/SSH 某个端口拒绝 | 服务绑死在旧 IP（坑4） | `netstat -lnt | grep 旧IP` |
 | 全网突然掉线、广播包暴涨 | 二层环路（坑5） | `brctl showmacs` 看 MAC 是否漂移 |
+| 某手机每隔一两分钟掉一次线，重连回同一台 AP | 踢人死循环：对端 AP 离线导致引导"无效"，steer 脚本反复强踢 | `logread \| grep roam-steer`（`del_client` 连串）+ `ping 192.168.10.2`；对端不在线就先停 steer（v2 脚本已自动检测并跳过，见坑6） |
 
 ---
 
