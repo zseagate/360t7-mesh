@@ -441,6 +441,34 @@ roam-steer --dry-run                        # 默认参数下应为空，说明�
 logread | grep roam-steer                   # 正常应看到 "round n/3 (带候选)"，不应再有 del_client
 ```
 
+#### 用 `roam-stats` 量化效果
+
+改完别靠感觉判断，直接按天统计：
+
+```sh
+scp scripts/roam-stats.sh root@192.168.10.1:/usr/sbin/roam-stats   # 两台都装
+ssh root@192.168.10.1 'chmod +x /usr/sbin/roam-stats
+  echo "17 * * * * /usr/sbin/roam-stats >/dev/null 2>&1" >> /etc/crontabs/root
+  /etc/init.d/cron restart'
+```
+
+输出（`roam-stats --show`）：
+
+```
+日期         不活跃掉线  去认证  本地踢人   总掉线  11v请求
+2026-11-10           43        17        11       83       39   ← 改造前
+2026-11-11           14         9         4       24       11
+2026-11-12            2         1         0        3        6   ← 改造后
+```
+
+判读：
+
+- **本地踢人**列应降到 0（v3 已不发 `del_client`，也不再有 `disassociation_imminent` 强断）；
+- **总掉线**应明显下降；若 `不活跃掉线` 仍高，那是覆盖问题（客户端真的收不到），
+  要动位置/加 AP，不是脚本能解决的；
+- 实现要点：`logread` 是 128KB 环形缓冲（约 1~2 天），所以每次采集**只读一份快照**、
+  按天统计后**逐项取最大值**写回 `daily.csv`（幂等，既不会重复累加也不会被滚动的缓冲区带偏）。
+
 **注意**：建议式引导对**支持 11v 的客户端**（iPhone、多数安卓、Windows 10+）有效；
 不支持的客户端会直接忽略——但**不会再因此掉线**，这是相对 v2 最重要的改进。
 若某处长期两台都弱、且手机频繁 `disassociated due to inactivity`，那是覆盖问题，
@@ -525,7 +553,8 @@ sh proxy/install.sh
 ├── scripts/
 │   ├── verify-mesh.sh               ← 一键验收脚本
 │   ├── roam-steer.sh                ← 弱信号客户端 11v「建议式」引导（带候选 AP，不断线）
-│   └── roam-steer.init              ← 上面脚本的 procd 服务
+│   ├── roam-steer.init              ← 上面脚本的 procd 服务
+│   └── roam-stats.sh                ← 按天统计掉线次数（cron 每小时，用于前后对比）
 └── proxy/                           ← 进阶：代理 + 去广告
     ├── README.md                    ← 完整说明与排坑
     ├── install.sh                   ← 一键部署（支持 --dry-run）
