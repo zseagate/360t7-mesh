@@ -53,7 +53,7 @@
             ▼                                        ▼
  ┌──────────────────────────┐        802.11s mesh  ┌──────────────────────────┐
  │  客厅路由  192.168.10.1   │ ◄═══════5G ch149════►│  卧室路由  192.168.10.2   │
- │  (主路由 PPPoE, DHCP 开)   │        HE80/SAE     │  (哑 AP, DHCP/DNS 关)     │
+ │  (主路由 PPPoE, DHCP 开)   │        HE40/SAE     │  (哑 AP, DHCP/DNS 关)     │
  └──────────────────────────┘        mesh 回程      └──────────────────────────┘
             ▏2.4G(ch6 HE20) 客户端AP     ▏2.4G(ch1 HE20) 客户端AP
               │  客户端漫游时自动切到                    │
@@ -63,7 +63,8 @@
 
 - **两台之间只有 mesh 无线这一条路径**，没有网线直连。
 - `lan1/lan2/lan3` 全部桥在 `br-lan` 上，**STP 未开**（详见 §6 环路风险）。
-- 回程实测 1200.9 Mbps（HE-MCS11 80MHz 2SS），单向最大 522 Mbps，ping 跨 mesh ~1.0 ms。
+- 回程实测 **573.5 Mbps**（HE-MCS11 **40MHz** 2SS；80MHz 时为 1200.9 Mbps），
+  ping 跨 mesh ~1.0 ms。为提升边缘覆盖 deliberately 降到 40MHz，理由见 §6 坑 6。
 
 ---
 
@@ -73,7 +74,7 @@
 |---|---|---|---|
 | LAN IP | **192.168.10.1** | **192.168.10.2** | 卧室默认 192.168.1.1 必须改 |
 | 2.4G 信道 | **ch6 / HE20** | **ch1 / HE20** | 错开频道，别叠加 |
-| 5G 信道 | **ch149 / HE80 + noscan=1** | **ch149 / HE80 + noscan=1** | mesh 必须同频 |
+| 5G 信道 / 带宽 | **ch149 / HE40 + noscan=1** | **ch149 / HE40 + noscan=1** | mesh 必须同频同带宽；40MHz 换 ~3dB 边缘灵敏度，见坑 6 |
 | 5G 发射功率 | **23 dBm** | **23 dBm**（必须对齐） | 一侧功率更高会把边界客户端吸住，见坑 6 |
 | SSID（2.4G） | `MainWiFi-2G` | 同名同密码 | |
 | SSID（5G） | `MainWiFi-5G` | 同名同密码 | |
@@ -149,7 +150,7 @@ uci commit system
 uci set wireless.radio0.channel='1'      # 2.4G 与主路由错开
 uci set wireless.radio0.htmode='HE20'
 uci set wireless.radio1.channel='149'
-uci set wireless.radio1.htmode='HE80'
+uci set wireless.radio1.htmode='HE40'
 uci set wireless.radio1.noscan='1'
 uci set wireless.radio1.txpower='23'
 
@@ -188,15 +189,17 @@ wifi down radio1 && sleep 3 && wifi up radio1
 ```sh
 # Ⅰ 5G 上是否有 mesh 接口 + 它是不是真的在 802.11s
 iw dev | grep -E "Interface|type"          # 应看到一个 type: mesh point
-iw dev wlan1 info                           # 应是 ch149/80MHz
+# 注意：mesh 接口名不一定是 wlan1。radio1 上有 AP + mesh 两个 vif，
+# 谁叫 wlan1-1、谁叫 wlan1-2 取决于 netifd 创建顺序，重载后可能互换。
+iw dev <mesh接口> info                      # 应是 ch149/40MHz
 
 # Ⅱ mesh plink 状态(两台都看)
-iw dev wlan1 station dump | grep -E "^Station|plink|bitrate|signal"
-#    → mesh plink: ESTAB
-#    → tx bitrate: 1200.9 MBit/s 80MHz HE-MCS 11
+iw dev <mesh接口> station dump | grep -E "^Station|plink|bitrate|signal"
+#    → plink: ESTAB
+#    → tx bitrate: 573.5 MBit/s 40MHz HE-MCS 11（HE80 时为 1200.9 MBit/s）
 
 # Ⅲ mpath 表
-iw dev wlan1 mpath dump                     # 应有一条到对端的路
+iw dev <mesh接口> mpath dump                # 应有一条到对端的路
 
 # Ⅳ 跨 mesh 端到端(在哑 AP 上 ping 主路由)
 ping -c 5 192.168.10.1                      # 0% 丢包
@@ -359,34 +362,89 @@ brctl showmacs br-lan | awk 'NR>2 && $2=="no"{c[$1]++}END{for(m in c)if(c[m]>1)p
 uci set wireless.radio1.txpower='23'; uci commit wireless
 iw phy phy1 set txpower fixed 2300          # 立即生效，不用重启无线
 
-# ② 部署 roam-steer：每 30s 扫一次，弱信号客户端先 11v 引导，仍不走再强制断开
+# ② 部署 roam-steer：每 30s 扫一次，对弱信号客户端发「纯建议式」11v 引导（不断线）
 scp scripts/roam-steer.sh root@192.168.10.1:/usr/sbin/roam-steer
 scp scripts/roam-steer.init root@192.168.10.1:/etc/init.d/roam-steer
 ssh root@192.168.10.1 '/etc/init.d/roam-steer enable && /etc/init.d/roam-steer start'
 # 两台都要装：各自负责自己 BSS 上的客户端
 ```
 
-`roam-steer` 的实现要点（**v2，2026-11-10 加固**）：
+`roam-steer` 的实现要点（**v3，2026-11-11**）：
 
-- 断联死循环教训：**卧室 AP 断电后，本脚本曾把自己变成断联源**——客户端无 AP 可去，
-  引导必然"无效"，退避防抖不够，导致手机每天上百次掉联。v2 加了三道闸：
-  1. **全局前置判断**：处理 5G 客户端前先探测 5G mesh 回程有无对端（对端离线时整周期跳过，
-     日志记 `mesh 回程无对端(卧室 AP 疑似离线)`，每小时最多提醒一次）；2.4G 侧要求 5G AP 接口存在；
-  2. **阈值放宽**：`THRESH=-78dBm`（-72~-78 属"可用但在边缘"，不值得赶）；
-  3. **指数退避**：冷却 `BASE_CD=900s` 按轮次翻倍（900→1800→3600s），
-     引导满 `KICK_MAX=2` 次才强踢、最多 `KICK_TOTAL=3` 轮，之后隔音 `MUTE=3600s` 绝不反复踢；
+> **v3 的核心转向：不再主动断开任何客户端。**
+> v2 的"引导"其实是 `disassociation_imminent=true`（客户端 10ms 内被强制断），
+> 且**没带候选 AP 列表**。实测日志里典型形态：
+>
+> ```
+> 19:13:35 roam-steer: bss_tm_req 46:0a:...@wlan1-1   ← 发"引导"
+> 19:13:36 hostapd:   AP-STA-DISCONNECTED 46:0a:...
+> 19:13:36 hostapd:   associated (aid 2)  46:0a:...  ← 1 秒后回到同一个 AP
+> ```
+>
+> 等于每隔十几分钟给手机断一次，什么也没换来（用户在客厅与卧室之间，
+> 两台实测 -75~-81dBm 与 -76~-78dBm，**两台都弱**，往哪边赶都一样）。
 
-- 参数：`THRESH=-78` `MIN_AGE=120` `BASE_CD=900` `KICK_MAX=2` `KICK_TOTAL=3` `MUTE=3600`（均可环境变量覆盖）；
-- 引导用 `ubus call hostapd.<if> bss_transition_request`，强踢用 `ubus call hostapd.<if> del_client`（**都不需要 hostapd_cli**）；
-- `--dry-run` 只打印不写状态文件，可随时跑：
-  ```sh
-  THRESH=-40 MIN_AGE=0 roam-steer --dry-run   # 故意放宽阈值，确认能识别到客户端
-  roam-steer --dry-run                        # 默认参数下应为空，说明当前没有弱信号客户端
-  ```
+v3 的行为：
 
-**验证**：修完后边界处手机会在 ~-75dBm 左右主动切到更近的 AP，`hostapd` 日志能看到
-`bss_tm_req`；若日志里只看到不断重复的 `del_client` 而**没有别的方向可去**，先检查那侧 AP
-是不是离线了——脚本正确的前提是网上确实存在更好的落脚点。
+- **只发建议**：`disassociation_imminent=false` + `disassociation_timer=0`，客户端可以不理，**不会掉线**；
+- **带候选列表**：`neighbors` 里放对端 AP 的 Neighbor Report，手机才知道"该去哪里"。
+  不带候选时客户端只会原地重连，是 v2 失败的根因；
+- **不发 `del_client`**：强踢等于用户可感知的断网，已从脚本中移除；
+- **退避**：`BASE_CD=900s` 按轮次翻倍（900→1800→3600s），满 `MAX_ROUNDS=3` 次后静音 `MUTE=3600s`；
+- **接口名不写死**：用 `iw dev <if> info` 的 `type` 和频段动态识别 AP / mesh 接口
+  （radio1 上 AP 和 mesh 谁叫 `wlan1-1`、谁叫 `wlan1-2` 取决于 netifd 创建顺序，重载后会互换）；
+- **安全阀**：5G 侧先探测 mesh 回程有无对端，对端离线时整周期跳过（日志
+  `mesh 回程无对端(另一台 AP 疑似离线)`，每小时最多一次）；2.4G 侧要求 5G AP 存在。
+
+参数：`THRESH=-78` `MIN_AGE=120` `BASE_CD=900` `MAX_ROUNDS=3` `MUTE=3600`（均可环境变量覆盖）。
+
+#### 生成邻居候选列表（v3 必需）
+
+邻居候选是**对端 AP 的 Neighbor Report**。本固件的 `rrm_nr_set` 无论数组还是字符串格式都返回
+`Invalid argument`，所以 11k 邻居表注入不了——但**直接把 NR 塞进 11v 请求的 `neighbors` 是可行的**
+（`bss_transition_request` 的 `neighbors` 接受的正是 `rrm_nr_get_own` 输出的那串 hex）：
+
+```sh
+# 在【对端】路由器上取值，写到【本机】/etc/roam-steer.neighbors
+ubus call hostapd.wlan1-1 rrm_nr_get_own   # 5G，取 value 的第 3 个字段
+ubus call hostapd.wlan0   rrm_nr_get_own   # 2.4G
+
+# 结果文件格式（每行 "<频段> <hex>"）：
+#   5g e2ef027294b2ef5900007e95090603019700
+#   2g e0ef027294b1ef4900005101070603000100
+```
+
+⚠️ **改过信道/带宽/信道宽度后必须重新生成**——hex 里编码了 op class + 信道 + 带宽，
+HE80→HE40 后内容就从 `...00008095...` 变成 `...00007e95...`。
+文件已加入 `/etc/sysupgrade.conf` 保留清单。
+
+#### 为什么 5G 用 HE40 而不是 HE80
+
+两台 AP 与 mesh 共用同一个 radio，边界处实测两台都只剩 -75~-81dBm。
+40MHz 把同样的功率摊到一半子载波上，等于**每子载波 +3dB**，边缘重传明显下降，
+代价是峰值带宽和 mesh 回程腰斩（1200.9 → 573.5 Mbps）。属于"覆盖换峰值"的取舍：
+
+```sh
+uci set wireless.radio1.htmode='HE40'   # 两台都要改，mesh 必须同带宽
+uci commit wireless
+wifi reload radio1
+```
+
+`wifi reload radio1` 之后 **mesh 接口可能会改名**（`wlan1` → `wlan1-2`），
+且不一定自动重建；必要时 `wifi down radio1; wifi up radio1`。改完记得重新生成邻居候选。
+
+**验证**：
+
+```sh
+THRESH=-40 MIN_AGE=0 roam-steer --dry-run   # 故意放宽阈值，确认能识别客户端并带上候选
+roam-steer --dry-run                        # 默认参数下应为空，说明当前没有弱信号客户端
+logread | grep roam-steer                   # 正常应看到 "round n/3 (带候选)"，不应再有 del_client
+```
+
+**注意**：建议式引导对**支持 11v 的客户端**（iPhone、多数安卓、Windows 10+）有效；
+不支持的客户端会直接忽略——但**不会再因此掉线**，这是相对 v2 最重要的改进。
+若某处长期两台都弱、且手机频繁 `disassociated due to inactivity`，那是覆盖问题，
+只能靠调位置、加第三台 AP 或继续收窄带宽解决，不是漫游逻辑能救的。
 
 ---
 
@@ -394,9 +452,9 @@ ssh root@192.168.10.1 '/etc/init.d/roam-steer enable && /etc/init.d/roam-steer s
 
 | 指标 | 值 |
 |---|---|
-| mesh 链路速率 | 1200.9 Mbit/s（HE-MCS11 80MHz 2SS） |
+| mesh 链路速率 | **573.5 Mbit/s**（HE-MCS11 40MHz 2SS）；HE80 时 1200.9 Mbit/s |
 | 回程信号 | 客厅↔卧室 -37~-53 dBm（推荐 ≥ -65dBm，越好回程越稳） |
-| 单向实际吞吐 | **最高 522 Mbps**（测试中落在 RAM 的文件可跑出该值；文件落在 flash 会跑不上去） |
+| 单向实际吞吐 | HE80 时 **最高 522 Mbps**（文件落在 RAM 才跑得出；落 flash 会受限）；HE40 约减半 |
 | 延迟 | 跨 mesh ping 主路由 ~1.0 ms（无网络风暴时） |
 | iPhone 5G RSSI | 从 -77 dBm 提高到 **-52 dBm**（摆位带来的提升 >25dB，比改任何 radio 参数都管用） |
 
@@ -416,7 +474,7 @@ ssh root@192.168.10.1 '/etc/init.d/roam-steer enable && /etc/init.d/roam-steer s
 | mesh SSID 出现在手机 WiFi 列表里 | 802.11s 规范要求 beacon 里必带 mesh_id，**无法隐藏** | 属正常，不要去连 |
 | 管理机改 IP 后 LuCI/SSH 某个端口拒绝 | 服务绑死在旧 IP（坑4） | `netstat -lnt | grep 旧IP` |
 | 全网突然掉线、广播包暴涨 | 二层环路（坑5） | `brctl showmacs` 看 MAC 是否漂移 |
-| 某手机每隔一两分钟掉一次线，重连回同一台 AP | 踢人死循环：对端 AP 离线导致引导"无效"，steer 脚本反复强踢 | `logread \| grep roam-steer`（`del_client` 连串）+ `ping 192.168.10.2`；对端不在线就先停 steer（v2 脚本已自动检测并跳过，见坑6） |
+| 某手机每隔一两分钟掉一次线，重连回**同一台** AP | ① v2 及更早版本的 11v 用的是 `disassociation_imminent=true`（等于硬断）；② 没带候选 AP 列表，手机不知道去哪 | `logread \| grep roam-steer`：若出现 `disassociation_imminent` 强断或密集 `del_client`，升级到 v3（纯建议 + 带候选，见坑6） |
 
 ---
 
@@ -466,7 +524,7 @@ sh proxy/install.sh
 │   └── apply-mesh-config.example.sh ← 两台的 uci 配置成稿（已脱敏）
 ├── scripts/
 │   ├── verify-mesh.sh               ← 一键验收脚本
-│   ├── roam-steer.sh                ← 弱信号客户端 11v 引导（解决边界"已连接无网络"）
+│   ├── roam-steer.sh                ← 弱信号客户端 11v「建议式」引导（带候选 AP，不断线）
 │   └── roam-steer.init              ← 上面脚本的 procd 服务
 └── proxy/                           ← 进阶：代理 + 去广告
     ├── README.md                    ← 完整说明与排坑
