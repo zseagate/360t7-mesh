@@ -73,7 +73,7 @@ sniffer:
     - '+.push.apple.com'
 tun:
   enable: true
-  stack: mixed
+  stack: system
   device: mihomo0
   auto-route: true
   auto-detect-interface: true
@@ -81,6 +81,20 @@ tun:
     - 'any:53'
   strict-route: false
   mtu: 1500
+  # 国内 IP 旁路：不把中国流量送进 TUN，直接走 WAN（全速），
+  # 只让境外流量进 TUN 走代理。列表见 /etc/mihomo/china_ip_list.txt。
+  # 效果：代理开时国内下载从 ~136Mbps 提升到线路满速（实测 476Mbps）。
+  route-exclude-address:
+STATIC2
+# 引号 heredoc 不执行命令替换，所以中国 IP 旁路列表单独用循环输出
+if [ -s /etc/mihomo/china_ip_list.txt ]; then
+  while read -r cidr; do
+    [ -n "$cidr" ] && echo "    - '$cidr'"
+  done < /etc/mihomo/china_ip_list.txt
+else
+  echo "    - '0.0.0.0/32'"
+fi
+cat <<'STATIC3'
 dns:
   enable: true
   listen: 0.0.0.0:1053
@@ -94,7 +108,7 @@ dns:
     - https://doh.pub/dns-query
   proxy-server-nameserver:
     - https://223.5.5.5/dns-query
-STATIC2
+STATIC3
 
 # ---- 订阅 (proxy-providers) ----
 echo "proxy-providers:"
