@@ -178,6 +178,47 @@ Proxy（默认 = 第一个可用地区组）
 
 ---
 
+### 国内直连旁路（提速，2026-11-12 上线）
+
+**现象**：代理开时国内 Speedtest 只有 ~136Mbps，关掉代理立刻 476~481Mbps。
+
+**根因**：mihomo TUN 模式把**所有**流量（含 GEOIP,CN→DIRECT 的国内直连）都灌进 `mihomo0`
+虚拟网卡，每包走一遍用户态再回灌 WAN。不是 CPU 瓶颈（负载 10%）、也不是 tun 数据栈
+（`stack: mixed→system` 无效），就是 TUN 数据路径开销，把国内速度锁在 ~136Mbps。
+
+**修法**：`tun.route-exclude-address`——中国 IP 段**不送进 TUN，直接走 WAN**：
+
+```yaml
+tun:
+  enable: true
+  stack: system
+  auto-route: true
+  route-exclude-address:
+    - '1.0.1.0/24'
+    # ... 7456 条中国 IP 段，由 gen-config.sh 从 /etc/mihomo/china_ip_list.txt 生成
+```
+
+- 列表来源：`17mon/china_ip_list`（jsdelivr / ghfast / raw 三源兜底）；
+- 效果：国内 Speedtest **132 → 481Mbps**（=线路满速，代理仍开），境外仍走代理（出口已验证）；
+- 代价：国内连接不再经 mihomo，**国内域名的 adblock REJECT 不生效**（国内广告少，可接受）；
+- 生成逻辑在 `gen-config.sh`（`route-exclude-address` 从列表逐行输出），重启 mihomo 生效。
+
+**定期更新列表**（`chinaip-update.sh`，cron 每周一 05:00）：
+
+```sh
+chinaip-update             # 下载→校验(≥5000条)→落盘→重生成 config→重启 mihomo
+chinaip-update --check     # 只测源可用性
+chinaip-update --status    # 当前条数与上次结果
+```
+
+- 内容无变化时**跳过不重启**（避免无谓断流）；
+- 结果写 `/etc/mihomo/chinaip.state`（`时间|状态|条数|来源|说明`）；
+- `china_ip_list.txt`、`chinaip-update.sh` 均已加入 `/etc/sysupgrade.conf` 保留清单。
+
+> ⚠️ 改完信道/带宽不需要重跑此表；只有当国内 IP 段变化（运营商新增段）时才需要更新。
+
+---
+
 ## 7. 广告拦截
 
 **自动更新**：cron 每天 4:30 执行 `adblock-update`（`/etc/crontabs/root`），流程是

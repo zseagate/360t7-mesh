@@ -562,6 +562,7 @@ sh proxy/install.sh
     ├── regions.conf                 ← 地区分组定义
     ├── mihomo.init                  ← procd 自启
     ├── adblock-update.sh            ← 广告规则自动更新
+    ├── chinaip-update.sh            ← 国内 IP 旁路表自动更新（cron 周一 05:00）
     ├── mihomo-backup.sh             ← 备份/恢复/轮转
     ├── www/                         ← 中文管理页 + CGI 后端
     └── luci/                        ← 挂到 LuCI「服务 → 代理管理」
