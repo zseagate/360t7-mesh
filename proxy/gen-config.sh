@@ -13,7 +13,14 @@ SECRET=$(cat /etc/mihomo/.secret 2>/dev/null)
 sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_' | cut -c1-40; }
 
 # 排除机场的"剩余流量/到期/官网"这类假节点
-EXCLUDE_FILTER='(?i)(剩余流量|距离下次|套餐到期|官网|到期时间|expire|traffic left|自动选择|节点选择|故障转移|负载均衡|Direct|REJECT)'
+#
+# 另外排除「延迟低但吞吐极差」的中转节点：url-test 只能用延迟（gstatic 204）排序，
+# 这类节点的 RTT 很漂亮、实际带宽只有 100~500 KB/s，会被自动选成"最快"，
+# 表现为"延迟 20ms 但下载 0.1MB/s"。实测（2026-11-12 晚高峰，单连接）：
+#   HK Telecom 01/02 ≈ 0.1~0.5 MB/s，HK 03~06 ≈ 4.4~4.6 MB/s；
+#   SG Katong / US California ≈ 0.0~0.1 MB/s。
+# 需要时可从这里删掉再 gen-config.sh + 重启。
+EXCLUDE_FILTER='(?i)(剩余流量|距离下次|套餐到期|官网|到期时间|expire|traffic left|自动选择|节点选择|故障转移|负载均衡|Direct|REJECT|HK ?Telecom|SG ?Katong|US ?California)'
 
 # 若已有 provider 缓存，则判断该正则能否匹配到节点（避免生成空分组）
 region_has_nodes() {
