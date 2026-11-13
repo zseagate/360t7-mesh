@@ -101,7 +101,15 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 			on|off) ;;
 			*) echo '{"ok":false,"msg":"非法参数"}'; exit 0 ;;
 		esac
-		/usr/sbin/mihomo-switch "$VAL" >/dev/null 2>&1
+		# 捕获 mihomo-switch 输出与退出码：互斥拦截时退出码非 0，不能报"已开启"
+		SWITCH_OUT=$(/usr/sbin/mihomo-switch "$VAL" 2>&1)
+		SWITCH_RC=$?
+		if [ "$SWITCH_RC" -ne 0 ]; then
+			# 互斥拦截：对端代理已开，提示用户先关对端（不展开对端详情）
+			echo '{"ok":false,"msg":"主代理未关闭，不允许开启"}'
+			logger -t mihomo-ui "开启代理被互斥拦截：主代理未关闭，不允许开启"
+			exit 0
+		fi
 		if [ "$VAL" = "on" ]; then
 			echo '{"ok":true,"msg":"代理已开启"}'
 		else
