@@ -5,6 +5,10 @@
 # 打开时：恢复 dnsmasq → mihomo(1053) + 启动 mihomo
 # 选择会写 /etc/mihomo/disabled 标记，开机时 /etc/init.d/mihomo 会据此处理
 #
+# 互斥（两台 360T7）：不允许两台同时开代理（TUN/DNS 会冲突）。
+# 开本端前先探测对端 9090（mihomo controller），对端在监听则拒绝并提示。
+# 对端经 mesh 可达；mesh 断开时探测失败→允许（两台独立，各服务各的客户端，不冲突）。
+#
 # 用法：mihomo-switch on|off|status|toggle
 set -u
 MARK=/etc/mihomo/disabled
@@ -27,8 +31,28 @@ dns_off() {
 
 is_running() { /etc/init.d/mihomo status 2>&1 | grep -q "^running"; }
 
+# 互斥：本机开启前，若对端 9090 有响应（对端代理开）则拒绝
+peer_block() {
+	MYIP=$(uci get network.lan.ipaddr 2>/dev/null)
+	case "$MYIP" in
+		192.168.10.1) PEER=192.168.10.2 ;;
+		192.168.10.2) PEER=192.168.10.1 ;;
+		*) return 0 ;;   # 无法确定对端，不拦截
+	esac
+	code=$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://$PEER:9090/version" 2>/dev/null)
+	case "$code" in
+		''|000) return 0 ;;   # 对端未监听/不可达 → 允许
+		*) ;;
+	esac
+	logger -t mihomo-switch "互斥：对端 $PEER 代理已开(HTTP $code)，拒绝本端开启"
+	echo "❌ 对端($PEER)的代理已开启，两台不能同时开（TUN/DNS 会冲突）。"
+	echo "   请先在对端执行 mihomo-switch off，再开本端。"
+	exit 1
+}
+
 case "${1:-status}" in
 on)
+	peer_block
 	rm -f "$MARK"
 	dns_on
 	/etc/init.d/mihomo start >/dev/null 2>&1

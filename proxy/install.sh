@@ -24,11 +24,11 @@ say "0. 环境检查"
 [ -x /usr/bin/mihomo ] || { echo "缺少 /usr/bin/mihomo，请先安装内核（README 里有下载与校验步骤）"; exit 1; }
 [ -e /dev/net/tun ] || { echo "缺少 /dev/net/tun（需要 kmod-tun）"; exit 1; }
 avail=$(df -m /overlay | awk 'NR==2{print $4}')
-if [ "$avail" -lt 20 ]; then
+if [ "$avail" -lt 10 ]; then
 	if [ "$DRY" -eq 1 ]; then
-		echo "  [warn] overlay 仅剩 ${avail}MB（真实执行要求 ≥20MB，dry-run 继续）"
+		echo "  [warn] overlay 仅剩 ${avail}MB（真实执行要求 ≥10MB，dry-run 继续）"
 	else
-		echo "overlay 仅剩 ${avail}MB，请先腾出 20MB 以上"; exit 1
+		echo "overlay 仅剩 ${avail}MB，请先腾出 10MB 以上"; exit 1
 	fi
 fi
 echo "  mihomo: $(/usr/bin/mihomo -v | head -1)"

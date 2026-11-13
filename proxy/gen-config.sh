@@ -35,6 +35,7 @@ subs_tmp=/tmp/.subs.enabled
 : > "$subs_tmp"
 while IFS='|' read -r name url en; do
 	[ -z "$name" ] && continue
+	case "$name" in \#*) continue;; esac
 	[ -z "$url" ] && continue
 	[ "${en:-1}" = "0" ] && continue
 	printf '%s|%s\n' "$(sanitize "$name")" "$url" >> "$subs_tmp"
@@ -140,6 +141,7 @@ REG_LIST=/tmp/.regions.avail
 if [ -f "$REGIONS" ]; then
 	while IFS='|' read -r label regex; do
 		[ -z "$label" ] && continue
+		case "$label" in \#*) continue;; esac
 		[ -z "$regex" ] && continue
 		region_has_nodes "$regex" || continue
 		printf '%s|%s\n' "$label" "$regex" >> "$REG_LIST"
