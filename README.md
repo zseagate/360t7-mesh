@@ -1,5 +1,13 @@
 # 两台 360T7 组 802.11s Mesh + 同 SSID 无缝漫游（跨房间无线回程）
 
+> ⚠️ **2026-11-13 重大变更**：本仓库早期方案用 **5G radio 做 mesh 回程**（mesh 与客户端 AP 共用 5G 电台/信道），
+> 实测把 iPhone SE2 压到 1SS/~260Mbps（mesh 是拖慢客户端的元凶）。**当前生效方案已改为：**
+> **回程走 2.4G(radio0) 802.11s mesh，5G(radio1) 两台都纯给客户端**（5G ch36/HE80/29dBm 无 mesh）。
+> 效果：客厅 iPhone 近处 895.68Mbps（2SS），卧室 iPhone 连卧室 5G AP **-53dBm / 1200.9Mbps(HE-MCS11 2SS) / 28 重传**，
+> 卧室互联网稳定 ~105-113Mbps（2.4G 回程物理上限）。**下文 §1-§7 描述的是旧 5G mesh 方案，仅存档，不要再照此配置。**
+> 新方案关键差异：mesh 绑 `radio0`（2.4G）、5G 无 mesh、两台 5G 同 `ch36/HE80`、mesh 需先打 mac80211.sh frequency 补丁。
+> 完整新拓扑与实测见仓库外维护笔记 `AGENTS.md`「无线回程：2.4G mesh + 双 5G AP」。
+
 > 实战记录：用两台 360 T7 路由器（MediaTek Filogic MT7981，OpenWrt 24.10 / bleachwrt mini），
 > 通过 **802.11s mesh 无线回程**打通客厅与卧室，全屋同一副 SSID，手机拿在手里无缝漫游。
 > 本文不含真实 SSID / 密码 / MAC，示例一律用占位名。
