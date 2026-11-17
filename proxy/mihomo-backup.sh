@@ -35,6 +35,7 @@ EOF
 etc/mihomo/ui
 etc/mihomo/GeoSite.dat
 etc/mihomo/cache.db
+etc/mihomo/geoip.metadb
 EOF
 	fi
 }
