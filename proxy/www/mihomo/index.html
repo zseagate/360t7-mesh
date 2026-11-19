@@ -36,6 +36,8 @@
   .row .meta { min-width: 0; flex: 1; }
   .row .name { font-weight: 600; }
   .row .url { font-size: 12px; color: #888; word-break: break-all; }
+  .row .det { font-size: 12px; color: #666; margin-top: 3px; }
+  .row .det b { color: #2e9d4f; }
   .acts { display: flex; gap: 6px; flex-shrink: 0; }
   .empty { color: #999; font-size: 14px; padding: 8px 0; }
   .hint { font-size: 12px; color: #999; margin-top: 6px; }
@@ -266,6 +268,15 @@ async function loadList() {
       nm.appendChild(badge);
       const ur = document.createElement('div'); ur.className = 'url'; ur.textContent = it.url;
       meta.append(nm, ur);
+
+      // 订阅详情：最后更新 / 下次更新 / 剩余流量 / 到期
+      const det = document.createElement('div'); det.className = 'det';
+      const parts = [];
+      if (it.updated) parts.push('更新 ' + it.updated);
+      if (it.next) parts.push('下次 ' + it.next);
+      if (it.remain) parts.push('剩余 <b>' + it.remain + '</b>');
+      if (it.expire) parts.push('到期 ' + it.expire);
+      if (parts.length) { det.innerHTML = parts.join(' ｜ '); meta.append(det); }
 
       const acts = document.createElement('div'); acts.className = 'acts';
       const t = document.createElement('button');
