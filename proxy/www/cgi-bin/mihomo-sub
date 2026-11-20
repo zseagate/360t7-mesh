@@ -8,6 +8,8 @@
 #   POST action=toggle&name=                     启用/停用
 #   POST action=mode&v=Auto|DIRECT|<组名>        切换全局出口
 #   POST action=secret&url=<新密钥>
+#   GET ?delay=1     -> 所有节点延迟 {node:ms}
+#   GET ?speed=1[&node=<节点>][&bytes=N] -> 下载测速
 SUBS=/etc/mihomo/subs.list
 GEN=/etc/mihomo/gen-config.sh
 API=http://127.0.0.1:9090
@@ -233,6 +235,57 @@ mode=1)
 		groups="$groups\"$(json_escape "$g")\""
 	done
 	printf '{"mode":"%s","groups":[%s]}\n' "$(json_escape "$now")" "$groups"
+	exit 0 ;;
+delay=1)
+	raw=$(curl -sS -m 25 -H "Authorization: Bearer $(secret)" \
+		"$API/group/Proxy/delay?url=http://www.gstatic.com/generate_204&timeout=3000" 2>/dev/null)
+	case "$raw" in
+		\{*) printf '{"ok":true,"delays":%s}\n' "$raw" ;;
+		*) echo '{"ok":false,"msg":"延迟测试失败（mihomo API 无响应）"}' ;;
+	esac
+	exit 0 ;;
+speed=1*)
+	# 参数：node=<节点名>（省略则用当前出口），bytes=<下载字节数>
+	NODE=$(printf '%s' "$QUERY_STRING" | tr '&' '\n' | sed -n 's/^node=//p' | head -1)
+	NODE=$(urldecode "$NODE")
+	BYTES=$(printf '%s' "$QUERY_STRING" | tr '&' '\n' | sed -n 's/^bytes=//p' | head -1)
+	case "$BYTES" in ''|*[!0-9]*) BYTES=3000000 ;; esac
+	[ "$BYTES" -gt 20000000 ] 2>/dev/null && BYTES=20000000
+	LOCK=/tmp/mihomo-speed.lock
+	mkdir "$LOCK" 2>/dev/null || { echo '{"ok":false,"msg":"已有测速任务在运行"}'; exit 0; }
+	trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
+	raw=$(curl -sS -m 8 -H "Authorization: Bearer $(secret)" "$API/proxies/Proxy" 2>/dev/null)
+	PREV=$(printf '%s' "$raw" | sed -n 's/.*"now":"\([^"]*\)".*/\1/p')
+	[ -z "$NODE" ] && NODE="$PREV"
+	[ -z "$NODE" ] && { echo '{"ok":false,"msg":"缺少节点名，且读不到当前出口"}'; exit 0; }
+
+	CHANGED=0
+	if [ -n "$PREV" ] && [ "$NODE" != "$PREV" ]; then
+		code=$(api_put "/proxies/Proxy" "{\"name\":\"$(json_escape "$NODE")\"}")
+		case "$code" in
+			204|200) CHANGED=1; sleep 1 ;;
+			*) echo "{\"ok\":false,\"msg\":\"切换节点失败（HTTP ${code:-timeout}）\"}"; exit 0 ;;
+		esac
+	fi
+
+	OUT=$(curl -sS -m 30 -x http://127.0.0.1:7890 -o /dev/null \
+		-w '%{size_download} %{time_total}' \
+		"https://speed.cloudflare.com/__down?bytes=$BYTES" 2>/dev/null)
+	if [ "$CHANGED" = "1" ] && [ -n "$PREV" ]; then
+		api_put "/proxies/Proxy" "{\"name\":\"$(json_escape "$PREV")\"}" >/dev/null 2>&1
+	fi
+
+	set -- $OUT
+	SIZE=${1:-0}; SECS=${2:-0}
+	case "$SIZE" in ''|*[!0-9]*) SIZE=0 ;; esac
+	if [ "$SIZE" -gt 0 ]; then
+		MBPS=$(awk -v b="$SIZE" -v s="$SECS" 'BEGIN{ if (s>0) printf "%.1f", b*8/1000000/s; else print "0.0" }')
+		printf '{"ok":true,"node":"%s","bytes":%s,"seconds":%s,"mbps":%s}\n' \
+			"$(json_escape "$NODE")" "$SIZE" "$SECS" "$MBPS"
+	else
+		echo '{"ok":false,"msg":"测速失败（下载超时或节点不可用）"}'
+	fi
 	exit 0 ;;
 esac
 

@@ -77,6 +77,20 @@
 </div>
 
 <div class="card">
+  <h2>节点延迟 / 下载测速</h2>
+  <div style="display:flex; gap:8px; flex-wrap:wrap">
+    <button class="ghost" id="delay-all">测全部节点延迟</button>
+    <button class="ghost" id="speed-cur">测当前出口下载</button>
+  </div>
+  <div class="hint" style="margin-top:8px">
+    测速会临时把「Proxy」组切到目标节点，约 5–15 秒后自动恢复；期间全屋流量会短暂走该节点。<br>
+    延迟走 mihomo 的 HTTP 探测；下载为路由器侧经 7890 端口，受节点和路由器 CPU 共同限制。
+  </div>
+  <div id="nodes" style="margin-top:10px; max-height:340px; overflow:auto"></div>
+  <div id="speed-msg" class="msg"></div>
+</div>
+
+<div class="card">
   <h2>广告拦截（anti-AD）</h2>
   <div id="adb-status" class="hint">读取中…</div>
   <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
@@ -187,6 +201,8 @@ async function loadProxy() {
     $('modes').style.pointerEvents = dis ? 'none' : 'auto';
     $('adb-toggle').disabled = dis;
     $('adb-update').disabled = dis;
+    $('delay-all').disabled = dis;
+    $('speed-cur').disabled = dis;
   } catch (e) {
     $('proxy-status').textContent = '读取失败：' + e;
   }
@@ -350,6 +366,68 @@ function updateCount(n) {
   el.style.color = used >= MAXSUB ? '#d9534f' : '#999';
   $('add').disabled = used >= MAXSUB;
 }
+
+
+// ---- 节点延迟 / 下载测速 ----
+function msClass(ms) {
+  if (ms <= 0) return 'err';
+  if (ms < 150) return 'ok';
+  if (ms < 450) return '';
+  return 'err';
+}
+async function testDelay() {
+  const box = $('nodes');
+  box.innerHTML = '<div class="empty">测试中，约 3–10 秒…</div>';
+  try {
+    const j = await api('?delay=1');
+    if (!j.ok) { box.innerHTML = '<div class="empty">' + j.msg + '</div>'; return; }
+    const entries = Object.entries(j.delays).sort((a, b) => a[1] - b[1]);
+    box.innerHTML = '';
+    for (const [name, ms] of entries) {
+      const row = document.createElement('div'); row.className = 'row'; row.style.padding = '6px 0';
+      const meta = document.createElement('div'); meta.className = 'meta';
+      const nm = document.createElement('div'); nm.className = 'name'; nm.textContent = name;
+      const det = document.createElement('div'); det.className = 'det';
+      det.innerHTML = ms > 0
+        ? '<b class="' + msClass(ms) + '">' + ms + ' ms</b>'
+        : '<span class="err">超时</span>';
+      meta.append(nm, det);
+      const acts = document.createElement('div'); acts.className = 'acts';
+      const b = document.createElement('button');
+      b.className = 'mini ghost'; b.textContent = '测速';
+      b.onclick = () => testSpeed(name, b);
+      acts.append(b);
+      row.append(meta, acts);
+      box.append(row);
+    }
+    if (!entries.length) box.innerHTML = '<div class="empty">没有节点（先添加订阅）</div>';
+  } catch (e) {
+    box.innerHTML = '<div class="empty">失败：' + e + '</div>';
+  }
+}
+async function testSpeed(name, btn) {
+  const msg = $('speed-msg');
+  if (btn) { btn.disabled = true; btn.textContent = '测速中…'; }
+  msg.textContent = '正在测速 ' + (name || '当前出口') + '（会临时切换节点）…';
+  msg.className = 'msg';
+  try {
+    const j = await api('?speed=1' + (name ? '&node=' + encodeURIComponent(name) : ''));
+    if (j.ok) {
+      const mb = (j.bytes / 1048576).toFixed(1);
+      msg.textContent = '✓ ' + (j.node || name || '当前出口') + '：' + j.mbps + ' Mbps（' + mb + ' MB / ' + j.seconds + ' s）';
+      msg.className = 'msg ok';
+    } else {
+      msg.textContent = '✗ ' + (j.msg || '测速失败');
+      msg.className = 'msg err';
+    }
+  } catch (e) {
+    msg.textContent = '失败：' + e; msg.className = 'msg err';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '测速'; }
+  loadModes();
+}
+$('delay-all').onclick = testDelay;
+$('speed-cur').onclick = () => testSpeed('', null);
 
 loadInfo(); loadList(); loadModes(); loadAdblock(); loadProxy();
 </script>

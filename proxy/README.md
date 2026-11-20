@@ -106,9 +106,27 @@ ssh root@192.168.10.1 'sh /tmp/proxy/install.sh'
 | 用途 | 入口 |
 |---|---|
 | 订阅管理（增删/停启/切出口） | `http://<路由器IP>/mihomo/`，或 LuCI **服务 → 代理管理** |
-| 节点面板（切具体节点、看延迟） | `http://<路由器IP>:9090/ui/`，密钥见 `cat /etc/mihomo/.secret` || 广告规则状态 | `adblock-update --status` |
+| 节点面板（切具体节点、看延迟） | `http://<路由器IP>:9090/ui/`，密钥见 `cat /etc/mihomo/.secret` |
+| 广告规则状态 | `adblock-update --status` |
 | 代理总开关 | 管理页顶部「代理总开关」：一键启停 mihomo，**同时切换 DNS 链路** |
 | 备份 / 恢复 | `mihomo-backup` / `mihomo-backup restore <文件>` |
+
+### 节点延迟 / 下载测速（网页管理页）
+
+管理页「节点延迟 / 下载测速」卡片：
+
+- **测全部节点延迟**：调用 mihomo `/group/Proxy/delay`，按毫秒排序显示；
+- **测速**：临时把 `Proxy` 组切到目标节点，经 `127.0.0.1:7890` 下载 3 MB
+  （`speed.cloudflare.com`），测完自动恢复原节点；测速期间全屋流量会短暂走该节点；
+- **测当前出口下载**：不切换节点，直接测当前出口；
+- 结果受节点带宽和路由器 CPU 共同限制，TUN/加解密会拉低数值，属正常。
+
+后端接口：
+
+```
+GET /cgi-bin/mihomo-sub?delay=1
+GET /cgi-bin/mihomo-sub?speed=1[&node=<节点名>][&bytes=N]
+```
 
 ### 可选：安装节点面板（metacubexd）
 
