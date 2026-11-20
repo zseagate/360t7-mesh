@@ -46,12 +46,15 @@ run cp "$SRC/regions.conf"           /etc/mihomo/regions.conf
 run cp "$SRC/mihomo.init"            /etc/init.d/mihomo
 run cp "$SRC/adblock-update.sh"      /usr/sbin/adblock-update
 run cp "$SRC/mihomo-backup.sh"       /usr/sbin/mihomo-backup
+run cp "$SRC/mihomo-switch.sh"       /usr/sbin/mihomo-switch
+run cp "$SRC/chinaip-update.sh"      /usr/sbin/chinaip-update
 run cp "$SRC/www/cgi-bin/mihomo-sub" /www/cgi-bin/mihomo-sub
 run cp "$SRC/www/mihomo/index.html"  /www/mihomo/index.html
 run cp "$SRC/luci/controller/mihomo_ui.lua" /usr/lib/lua/luci/controller/mihomo_ui.lua
 run cp "$SRC/luci/view/mihomo_ui.htm"       /usr/lib/lua/luci/view/mihomo_ui.htm
 run chmod 755 /etc/mihomo/gen-config.sh /etc/init.d/mihomo \
 	/usr/sbin/adblock-update /usr/sbin/mihomo-backup \
+	/usr/sbin/mihomo-switch /usr/sbin/chinaip-update \
 	/www/cgi-bin/mihomo-sub
 
 say "3. 初始化凭据与订阅列表"
@@ -83,6 +86,7 @@ say "7. 加入 sysupgrade 保留清单"
 if [ "$DRY" -eq 0 ]; then
 	for f in /etc/mihomo/ /usr/bin/mihomo /etc/init.d/mihomo /www/mihomo/ \
 	         /www/cgi-bin/mihomo-sub /usr/sbin/adblock-update /usr/sbin/mihomo-backup \
+	         /usr/sbin/mihomo-switch /usr/sbin/chinaip-update \
 	         /usr/lib/lua/luci/controller/mihomo_ui.lua /usr/lib/lua/luci/view/mihomo_ui.htm; do
 		grep -qx "$f" /etc/sysupgrade.conf 2>/dev/null || echo "$f" >> /etc/sysupgrade.conf
 	done
@@ -98,12 +102,14 @@ run /etc/init.d/dnsmasq restart
 run /etc/init.d/mihomo restart
 
 say "9. 初始化广告规则（需要外网）"
-run /usr/sbin/adblock-update
+# mihomo 刚重启时 API/DNS 可能还没就绪，失败不阻断后续步骤
+run /usr/sbin/adblock-update || echo "  [warn] 广告规则更新失败，保留旧规则"
 
 say "10. 定时任务"
 if [ "$DRY" -eq 0 ]; then
 	grep -q 'mihomo-backup'   /etc/crontabs/root 2>/dev/null || echo "0 4 * * * /usr/sbin/mihomo-backup >/dev/null 2>&1"  >> /etc/crontabs/root
 	grep -q 'adblock-update'  /etc/crontabs/root 2>/dev/null || echo "30 4 * * * /usr/sbin/adblock-update >/dev/null 2>&1" >> /etc/crontabs/root
+	grep -q 'chinaip-update'  /etc/crontabs/root 2>/dev/null || echo "50 4 * * 1 /usr/sbin/chinaip-update >/dev/null 2>&1" >> /etc/crontabs/root
 	/etc/init.d/cron restart
 	echo "  已添加：每天 4:00 备份、4:30 更新广告规则"
 fi

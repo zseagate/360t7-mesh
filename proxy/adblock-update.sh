@@ -29,7 +29,7 @@ https://ghfast.top/https://raw.githubusercontent.com/privacy-protection-tools/an
 
 fetch_ok() {
 	# $1=url  $2=输出文件；成功返回 0
-	timeout 90 curl -sSL --retry 2 --retry-delay 2 -o "$2" "$1" 2>/dev/null || return 1
+	curl -m 90 -sSL --retry 2 --retry-delay 2 -o "$2" "$1" 2>/dev/null || return 1
 	[ -s "$2" ] || return 1
 	# 粗校验：必须是 easylist 文本且有一定规模
 	size=$(wc -c < "$2")
@@ -81,7 +81,7 @@ case "${1:-update}" in
 	--check|check)
 		for u in $SOURCES; do
 			printf "%-96s " "$(echo "$u" | cut -c1-60)"
-			timeout 40 curl -sSL -o /dev/null -w "%{http_code} %{size_download}B %{time_total}s\n" "$u" 2>&1 | tail -1
+			curl -m 40 -sSL -o /dev/null -w "%{http_code} %{size_download}B %{time_total}s\n" "$u" 2>&1 | tail -1
 		done
 		exit 0 ;;
 esac

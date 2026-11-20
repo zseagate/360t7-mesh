@@ -32,7 +32,7 @@ https://raw.githubusercontent.com/17mon/china_ip_list/master/china_ip_list.txt
 
 fetch_ok() {
 	# $1=url  $2=输出文件；成功返回 0
-	timeout 90 curl -sSL --retry 2 --retry-delay 2 -o "$2" "$1" 2>/dev/null || return 1
+	curl -m 90 -sSL --retry 2 --retry-delay 2 -o "$2" "$1" 2>/dev/null || return 1
 	[ -s "$2" ] || return 1
 	# 粗校验：行数达标且是 CIDR 格式
 	lines=$(grep -cE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' "$2" 2>/dev/null || echo 0)
