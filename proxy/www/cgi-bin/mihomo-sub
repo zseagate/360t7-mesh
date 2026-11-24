@@ -130,9 +130,32 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 			echo '{"ok":false,"msg":"已有更新任务在跑，请稍候"}'
 			exit 0
 		fi
-		setsid sh -c '/usr/sbin/adblock-update >>/tmp/adblock-update.log 2>&1' </dev/null >/dev/null 2>&1 &
+		nohup sh -c '/usr/sbin/adblock-update >>/tmp/adblock-update.log 2>&1' </dev/null >/dev/null 2>&1 &
 		logger -t mihomo-ui "手动触发广告规则更新"
 		echo '{"ok":true,"msg":"已开始更新，约 10-30 秒后刷新查看结果"}'
+		exit 0
+		;;
+	sub_update)
+		# 手动更新单个订阅：强制拉取 provider 缓存 -> 重新生成配置 -> 重启 mihomo
+		NAME=$(urldecode "$NAME")
+		case "$NAME" in
+			""|*'"'*|*\\*) echo '{"ok":false,"msg":"缺少订阅名"}'; exit 0 ;;
+		esac
+		grep -q "^$NAME|" "$SUBS" 2>/dev/null || { echo '{"ok":false,"msg":"订阅不存在"}'; exit 0; }
+		LOCK=/tmp/mihomo-sub-update.lock
+		mkdir "$LOCK" 2>/dev/null || { echo '{"ok":false,"msg":"已有订阅更新任务在跑，请稍候"}'; exit 0; }
+		# 后台执行，不阻塞请求；完成后 rmdir 锁
+		nohup sh -c '
+			NAME="$1"
+			SEC=$(cat /etc/mihomo/.secret 2>/dev/null)
+			curl -sS -m 60 -X PUT -H "Authorization: Bearer $SEC" \
+				"http://127.0.0.1:9090/providers/proxies/$NAME" >/dev/null 2>&1
+			/etc/mihomo/gen-config.sh >/dev/null 2>&1
+			/etc/init.d/mihomo restart
+			rmdir /tmp/mihomo-sub-update.lock 2>/dev/null
+		' sh "$NAME" </dev/null >/dev/null 2>&1 &
+		logger -t mihomo-ui "手动更新订阅 $NAME"
+		echo '{"ok":true,"msg":"已开始更新订阅「'"$NAME"'」，约 10-30 秒后刷新查看结果"}'
 		exit 0
 		;;
 	mode)
@@ -168,7 +191,7 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 		out=$("$GEN" 2>&1)
 		case "$out" in
 			*"config OK"*)
-				setsid sh -c '/etc/init.d/mihomo restart' </dev/null >/dev/null 2>&1 &
+				nohup sh -c '/etc/init.d/mihomo restart' </dev/null >/dev/null 2>&1 &
 				echo '{"ok":true,"msg":"已保存，服务正在重启（约 5 秒）"}'
 				;;
 			*)

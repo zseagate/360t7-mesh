@@ -319,6 +319,11 @@ async function loadList() {
       if (parts.length) { det.innerHTML = parts.join(' ｜ '); meta.append(det); }
 
       const acts = document.createElement('div'); acts.className = 'acts';
+      const u = document.createElement('button');
+      u.className = 'mini ghost'; u.textContent = '更新';
+      u.disabled = !it.enabled;
+      u.title = it.enabled ? '强制拉取最新节点（约 10-30 秒）' : '已停用，无法更新';
+      u.onclick = () => updateSub(it.name);
       const t = document.createElement('button');
       t.className = 'mini ' + (it.enabled ? 'warn' : 'ghost');
       t.textContent = it.enabled ? '停用' : '启用';
@@ -326,7 +331,7 @@ async function loadList() {
       const d = document.createElement('button');
       d.className = 'mini danger'; d.textContent = '删除';
       d.onclick = () => remove(it.name);
-      acts.append(t, d);
+      acts.append(u, t, d);
 
       row.append(meta, acts);
       listEl.appendChild(row);
@@ -340,6 +345,13 @@ async function toggle(name) {
   const j = await api(null, 'action=toggle&name=' + encodeURIComponent(name));
   setMsg(j.msg, j.ok);
   if (j.ok) setTimeout(() => { loadList(); loadModes(); }, 6500);
+}
+
+async function updateSub(name) {
+  if (!confirm('更新订阅「' + name + '」？\n强制拉取最新节点，约 10-30 秒，期间服务会重启。')) return;
+  const j = await api(null, 'action=sub_update&name=' + encodeURIComponent(name));
+  setMsg(j.msg, j.ok);
+  if (j.ok) setTimeout(() => { loadList(); loadModes(); }, 8000);
 }
 
 async function remove(name) {
