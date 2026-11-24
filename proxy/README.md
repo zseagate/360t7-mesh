@@ -134,6 +134,12 @@ GET /cgi-bin/mihomo-sub?speed=1[&node=<节点名>][&bytes=N]
 
 ### 可选：安装节点面板（metacubexd）
 
+管理页顶部有"打开面板（自动登录）"，也支持单独访问 `:9090/ui/`。安装看下面。
+
+面板版本标签（`proxy/panel-version-tag.html`）：把文件内容插入面板 `index.html` 的 `</body>` 前，
+重启核心下方版本号前会显示「代理引擎」（内核）/「网页界面」（面板）标签。**改后需硬刷新**
+（面板有 service worker 缓存）；匹配已跳过 `script/style` 内文本（防误扫 config 里的版本号）。
+
 `install.sh` 不包含面板静态文件（约 8MB），需要的话单独装：
 
 ```sh

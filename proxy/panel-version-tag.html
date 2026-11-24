@@ -1,0 +1,37 @@
+<!-- 版本标识注入：插入到 metacubexd 面板 index.html 的 </body> 前（需硬刷新，SW 缓存） -->
+<script>
+/* 版本标识：重启核心区域的内核/面板版本前加标签（注入，不碰 Nuxt chunk） */
+(function(){
+  var done={};
+  function tag(node,label,key){
+    if(done[key]) return;
+    var p=node.parentNode; if(!p) return;
+    for(var c=p.firstChild;c;c=c.nextSibling){
+      if(c.nodeType===1&&c.className==='mt-ver-tag') return;
+    }
+    var s=document.createElement('span');
+    s.className='mt-ver-tag';
+    s.style.cssText='color:#888;font-size:12px;margin-right:5px;user-select:none;white-space:nowrap;';
+    s.textContent=label;
+    p.insertBefore(s,node);
+    done[key]=true;
+  }
+  function scan(){
+    if(document.body==null) return;
+    var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+    var n;
+    while((n=w.nextNode())){
+      var pe=n.parentNode;
+      if(!pe||pe.tagName==='SCRIPT'||pe.tagName==='STYLE') continue;
+      var t=n.nodeValue;
+      if(!/1\.276/.test(t) && /v?\d+\.\d+\.\d+/.test(t)) tag(n,'代理引擎','core');
+      if(/1\.276/.test(t)) tag(n,'网页界面','ui');
+    }
+  }
+  new MutationObserver(function(){ scan(); })
+    .observe(document.documentElement,{childList:true,subtree:true,characterData:true});
+  window.addEventListener('load',scan);
+  scan();
+  setInterval(scan,2000);
+})();
+</script>
