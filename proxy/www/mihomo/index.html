@@ -390,6 +390,12 @@ async function testDelay() {
       const row = document.createElement('div'); row.className = 'row'; row.style.padding = '6px 0';
       const meta = document.createElement('div'); meta.className = 'meta';
       const nm = document.createElement('div'); nm.className = 'name'; nm.textContent = name;
+      const sub = (j.subs || {})[name];
+      if (sub) {
+        const sb = document.createElement('span');
+        sb.className = 'badge'; sb.textContent = sub.replace(/^sub-/, '');
+        nm.appendChild(sb);
+      }
       const det = document.createElement('div'); det.className = 'det';
       det.innerHTML = ms > 0
         ? '<b class="' + msClass(ms) + '">' + ms + ' ms</b>'

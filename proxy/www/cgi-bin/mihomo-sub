@@ -240,7 +240,15 @@ delay=1)
 	raw=$(curl -sS -m 25 -H "Authorization: Bearer $(secret)" \
 		"$API/group/Proxy/delay?url=http://www.gstatic.com/generate_204&timeout=3000" 2>/dev/null)
 	case "$raw" in
-		\{*) printf '{"ok":true,"delays":%s}\n' "$raw" ;;
+		\{*)
+			# 节点 -> 订阅归属映射（从各 sub-xxx 组的 all 构建）
+			subs="{}"
+			prox=$(curl -sS -m 8 -H "Authorization: Bearer $(secret)" "$API/proxies" 2>/dev/null)
+			case "$prox" in
+				\{*) subs=$(printf '%s' "$prox" | jq -c '[.proxies | to_entries[] | select(.key|startswith("sub-")) | .value.all[]? as $n | {key:$n, value:.key}] | from_entries' 2>/dev/null) ;;
+			esac
+			[ -z "$subs" ] && subs="{}"
+			printf '{"ok":true,"delays":%s,"subs":%s}\n' "$raw" "$subs" ;;
 		*) echo '{"ok":false,"msg":"延迟测试失败（mihomo API 无响应）"}' ;;
 	esac
 	exit 0 ;;
