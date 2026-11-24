@@ -82,8 +82,8 @@
   <h2>节点延迟 / 下载测速</h2>
   <div style="display:flex; gap:8px; flex-wrap:wrap">
     <button class="ghost" id="spd-fault">测速节点（定位故障）</button>
-    <button class="ghost" id="delay-all">测全部节点延迟</button>
     <button class="ghost" id="speed-cur">测当前出口下载</button>
+    <button class="ghost" id="delay-all">测全部节点延迟</button>
   </div>
   <div class="hint" style="margin-top:8px">
     测速会临时把「Proxy」组切到目标节点，约 5–15 秒后自动恢复；期间全屋流量会短暂走该节点。<br>
@@ -91,8 +91,8 @@
     「测速节点（定位故障）」不切换出口：测当前出口经代理的真实吞吐 + 各机场组延迟。
   </div>
   <div id="spd-fault-msg" class="msg" style="margin-top:8px"></div>
+  <div id="speed-msg" class="msg" style="margin-top:8px"></div>
   <div id="nodes" style="margin-top:10px; max-height:340px; overflow:auto"></div>
-  <div id="speed-msg" class="msg"></div>
 </div>
 
 <div class="card">
