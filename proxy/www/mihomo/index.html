@@ -81,12 +81,15 @@
   <div style="display:flex; gap:8px; flex-wrap:wrap">
     <button class="ghost" id="delay-all">测全部节点延迟</button>
     <button class="ghost" id="speed-cur">测当前出口下载</button>
+    <button class="ghost" id="spd-fault">测速节点（定位故障）</button>
   </div>
   <div class="hint" style="margin-top:8px">
     测速会临时把「Proxy」组切到目标节点，约 5–15 秒后自动恢复；期间全屋流量会短暂走该节点。<br>
     延迟走 mihomo 的 HTTP 探测；下载为路由器侧经 7890 端口，受节点和路由器 CPU 共同限制。
+    「测速节点（定位故障）」不切换出口：测当前出口经代理的真实吞吐 + 各机场组延迟。
   </div>
   <div id="nodes" style="margin-top:10px; max-height:340px; overflow:auto"></div>
+  <div id="spd-fault-msg" class="msg" style="margin-top:8px"></div>
   <div id="speed-msg" class="msg"></div>
 </div>
 
@@ -427,6 +430,26 @@ async function testSpeed(name, btn) {
   loadModes();
 }
 $('delay-all').onclick = testDelay;
+$('speed-cur').onclick = () => testSpeed('');
+
+// 测速节点（定位故障）：不切换出口，测当前出口经代理吞吐 + 各机场组延迟
+async function spdFault() {
+  const el = $('spd-fault-msg');
+  el.innerHTML = '⏳ 测速中（不切换出口，约 20~30 秒）…';
+  el.className = 'msg';
+  try {
+    const j = await api('?speedtest=1');
+    const mbps = (Number(j.bps) / 1048576).toFixed(1);
+    let h = '当前出口 <b>' + j.current + '</b> ｜ 实测 <b>' + mbps + ' Mbps</b><br>';
+    h += j.groups.map(g => {
+      const nm = g.name.replace(/^sub-/, '') + ' ';
+      if (g.delay <= 0) return nm + '<b class="err">超时/挂</b>';
+      return nm + '<b class="' + msClass(g.delay) + '">' + g.delay + 'ms</b>';
+    }).join(' ｜ ');
+    el.innerHTML = h;
+  } catch (e) { el.textContent = '失败：' + e; el.className = 'msg err'; }
+}
+$('spd-fault').onclick = spdFault;
 $('speed-cur').onclick = () => testSpeed('', null);
 
 loadInfo(); loadList(); loadModes(); loadAdblock(); loadProxy();

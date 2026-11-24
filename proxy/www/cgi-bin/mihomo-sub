@@ -244,6 +244,26 @@ delay=1)
 		*) echo '{"ok":false,"msg":"延迟测试失败（mihomo API 无响应）"}' ;;
 	esac
 	exit 0 ;;
+speedtest=1)
+	# 测速节点（定位故障）：不切换出口，测当前出口经代理的真实吞吐 + 各机场组延迟
+	SECRET=$(secret)
+	cur=$(curl -sS -m 6 -H "Authorization: Bearer $SECRET" "$API/proxies/Proxy" 2>/dev/null | sed -n 's/.*"now":"\([^"]*\)".*/\1/p')
+	[ -z "$cur" ] && cur="-"
+	bps=0
+	if [ "$cur" != "-" ]; then
+		bps=$(curl -sL -x http://127.0.0.1:7890 -o /dev/null -m 16 -w '%{speed_download}' --max-time 13 'https://speed.cloudflare.com/__down?bytes=5000000' 2>/dev/null)
+		[ -z "$bps" ] && bps=0
+	fi
+	groups=""; first=1
+	for g in $(grep '^  - name: ' /etc/mihomo/config.yaml 2>/dev/null | sed 's/.*name: //' | grep '^sub-'); do
+		d=$(curl -sS -m 8 -H "Authorization: Bearer $SECRET" "$API/proxies/$g/delay?timeout=3000&url=http://www.gstatic.com/generate_204" 2>/dev/null | sed -n 's/.*"delay":\([0-9]*\).*/\1/p')
+		[ -z "$d" ] && d=-1
+		[ "$first" -eq 0 ] && groups="$groups,"
+		first=0
+		groups="$groups{\"name\":\"$(json_escape "$g")\",\"delay\":$d}"
+	done
+	printf '{"current":"%s","bps":%s,"groups":[%s]}\n' "$(json_escape "$cur")" "$bps" "$groups"
+	exit 0 ;;
 speed=1*)
 	# 参数：node=<节点名>（省略则用当前出口），bytes=<下载字节数>
 	NODE=$(printf '%s' "$QUERY_STRING" | tr '&' '\n' | sed -n 's/^node=//p' | head -1)
