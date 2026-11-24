@@ -30,6 +30,8 @@
   button.warn { border-color: #e0a800; background: transparent; color: #b38600; }
   button.on { background: #2b6cff; color: #fff; border-color: #2b6cff; }
   .modes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mode-group { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; align-items: center; }
+  .mode-label { width: 100%; font-size: 12px; color: #888; margin-top: 2px; }
   .row { display: flex; gap: 10px; align-items: center; justify-content: space-between;
          padding: 10px 0; border-bottom: 1px dashed #e3e3e3; }
   .row:last-child { border-bottom: none; }
@@ -164,18 +166,37 @@ const MODE_LABEL = {
   'Auto': '自动最快（跨地区·慎用）',
   'DIRECT': '全部直连（关停）'
 };
-const modeName = g => MODE_LABEL[g] || g.replace(/^sub-/, '订阅：');
 
 async function loadModes() {
   try {
     const j = await api('?mode=1');
     modeEl.innerHTML = '';
-    for (const g of j.groups) {
-      const b = document.createElement('button');
-      b.className = 'ghost' + (g === j.mode ? ' on' : '');
-      b.textContent = modeName(g);
-      b.onclick = () => switchMode(g);
-      modeEl.appendChild(b);
+    // 分组显示：地区 / 订阅 / 特殊（Auto、DIRECT），按钮全部展开
+    const buckets = [
+      { label: '地区', key: g => !g.startsWith('sub-') && !MODE_LABEL[g],
+        name: g => g },
+      { label: '订阅', key: g => g.startsWith('sub-'),
+        name: g => g.replace(/^sub-/, '') },
+      { label: '其他', key: g => !!MODE_LABEL[g],
+        name: g => MODE_LABEL[g] }
+    ];
+    for (const bk of buckets) {
+      const list = j.groups.filter(bk.key);
+      if (!list.length) continue;
+      const sec = document.createElement('div');
+      sec.className = 'mode-group';
+      const lab = document.createElement('div');
+      lab.className = 'mode-label';
+      lab.textContent = bk.label;
+      sec.appendChild(lab);
+      for (const g of list) {
+        const b = document.createElement('button');
+        b.className = 'ghost' + (g === j.mode ? ' on' : '');
+        b.textContent = bk.name(g);
+        b.onclick = () => switchMode(g);
+        sec.appendChild(b);
+      }
+      modeEl.appendChild(sec);
     }
     if (!j.groups.length) modeEl.innerHTML = '<span class="empty">还没有可用分组（先添加订阅）</span>';
   } catch (e) {
