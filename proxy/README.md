@@ -62,14 +62,18 @@ dnsmasq ──上游──► mihomo DNS 127.0.0.1:1053（redir-host）
 ## 4. 安装内核
 
 ```sh
-# 在电脑上下载（路由器直连 GitHub 经常被 reset，建议本机下载再传）
-curl -L -o mihomo.gz \
-  https://github.com/MetaCubeX/mihomo/releases/latest/download/mihomo-linux-arm64-<版本>.gz
+# 在路由器上直接下载（ghfast.top 镜像实测通；本机直连 GitHub 常被 reset，别用本机下）
+ssh root@192.168.10.1 'curl -sL -o /tmp/mihomo.gz \
+  https://ghfast.top/https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-arm64-v1.19.34.gz'
 
-# 传给路由器
-scp mihomo.gz root@192.168.10.1:/tmp/
-ssh root@192.168.10.1 'gunzip -c /tmp/mihomo.gz > /usr/bin/mihomo && chmod 755 /usr/bin/mihomo && mihomo -v'
+# 验证 gz 完整后替换（⚠️ 必须先停 mihomo，见坑 12）
+ssh root@192.168.10.1 'gzip -t /tmp/mihomo.gz && \
+  /etc/init.d/mihomo stop && \
+  gunzip -c /tmp/mihomo.gz > /usr/bin/mihomo && chmod 755 /usr/bin/mihomo && \
+  /usr/bin/mihomo -v && /etc/init.d/mihomo start'
 ```
+
+当前内核版本：**v1.19.34**（arm64，Mihomo Meta）。
 
 需要 `kmod-tun`，确认 `/dev/net/tun` 存在：
 
@@ -307,6 +311,9 @@ mihomo-backup list|restore|clean
    init 脚本里已加 `GOGC=40 GOMEMLIMIT=80MiB` 限制 Go 堆。若仍频繁 OOM，优先关掉
    haproxy / mwan3 / appfilter 等无用服务（它们各占 2–8MB）。
 10. **地区误匹配**：判断某个地区有没有节点时，只匹配 `name:` 行，否则 URL 里的 `de`/`uk` 会造成误判。
+11. **固件无 `setsid`**：cgi-bin 里后台命令用 `setsid` 会 `not found`，**从未执行**（adblock 更新、订阅增删后重启等都静默失效）；改用 **`nohup`**。
+12. **升级内核空间坑**：**运行中的 mihomo 进程持有旧内核文件，`rm` 后空间不释放**（`exe=/usr/bin/mihomo.old (deleted)`），overlay 仍满 → 必须先 `mihomo stop` 释放空间才能替换（升级短暂断代理 1-2 分钟）。
+13. **面板版本标签**（metacubexd `index.html` 注入）：匹配版本号时**必须跳过 `script/style` 内文本**（否则 `Version:"1.276.0"` 在 config script 里被误扫）；面板有 service worker 缓存，改后需**硬刷新**。
 
 ---
 
