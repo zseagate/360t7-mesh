@@ -348,7 +348,6 @@ async function toggle(name) {
 }
 
 async function updateSub(name) {
-  if (!confirm('更新订阅「' + name + '」？\n强制拉取最新节点，约 10-30 秒，期间服务会重启。')) return;
   const j = await api(null, 'action=sub_update&name=' + encodeURIComponent(name));
   setMsg(j.msg, j.ok);
   if (j.ok) setTimeout(() => { loadList(); loadModes(); }, 8000);
