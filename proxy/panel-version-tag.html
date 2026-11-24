@@ -24,7 +24,7 @@
       var pe=n.parentNode;
       if(!pe||pe.tagName==='SCRIPT'||pe.tagName==='STYLE') continue;
       var t=n.nodeValue;
-      if(!/1\.276/.test(t) && /v?\d+\.\d+\.\d+/.test(t)) tag(n,'代理引擎','core');
+      if(!/1\.276/.test(t) && /1\.19\.\d+/.test(t)) tag(n,'代理引擎','core');
       if(/1\.276/.test(t)) tag(n,'网页界面','ui');
     }
   }
