@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>连接面板</title></head>
+<body style="font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;color:#555">
+  正在连接面板…
+  <script>
+  (function(){
+    var p=new URLSearchParams(location.search);
+    var url=p.get('url')||location.origin;
+    var secret=p.get('secret')||'';
+    function uuid(){try{if(crypto.randomUUID)return crypto.randomUUID()}catch(e){}
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
+        var r=Math.random()*16|0,v=c==='x'?r:(r&3|8);return v.toString(16);});}
+    var id=uuid();
+    try{
+      localStorage.setItem('endpointList',JSON.stringify([{id:id,url:url,secret:secret}]));
+      localStorage.setItem('selectedEndpoint',id);
+    }catch(e){}
+    location.replace('/ui/');
+  })();
+  </script>
+</body></html>
