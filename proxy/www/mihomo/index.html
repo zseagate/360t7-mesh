@@ -445,7 +445,7 @@ async function spdFault() {
   el.className = 'msg';
   try {
     const j = await api('?speedtest=1');
-    const mbps = (Number(j.bps) / 1048576).toFixed(1);
+    const mbps = (Number(j.bps) * 8 / 1000000).toFixed(1);
     let h = '当前出口 <b>' + j.current + '</b> ｜ 实测 <b>' + mbps + ' Mbps</b><br>';
     h += j.groups.map(g => {
       const nm = g.name.replace(/^sub-/, '') + ' ';
